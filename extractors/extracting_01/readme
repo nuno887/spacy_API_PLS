@@ -1,0 +1,5 @@
+Este extractor é usado para as series I, II, IV Series do Joram.
+
+Bug's -
+
+- No file "segmeter.py", parece que tem um bug que parece que duplica "DOC's", "ORG's" e "ORG_SEGUNDA's", o problema e que parece que e demasiado raro para verificar o problema.
