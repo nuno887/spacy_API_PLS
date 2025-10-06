@@ -23,6 +23,28 @@ def _span_by_offsets(doc: Doc, start: int, end: int, label: Optional[str] = None
             return e
     return None
 
+def _merge_orphan_orgs(roster_orgs: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """
+    If an ORG has no suborgs and no docs, merge its org_text into the *next* ORG's org_text
+    (as a prefix) and drop the orphan entry.
+    """
+    merged: List[Dict[str, object]] = []
+    i = 0
+    n = len(roster_orgs)
+    while i < n:
+        cur = roster_orgs[i]
+        has_payload = bool(cur.get("suborg_texts")) or bool(cur.get("doc_texts"))
+        if not has_payload and i + 1 < n:
+            nxt = dict(roster_orgs[i + 1])  # shallow copy
+            nxt["org_text"] = _collapse_ws(f'{cur.get("org_text","")} {nxt.get("org_text","")}')
+            merged.append(nxt)
+            i += 2  # skip current (orphan) and consume next
+        else:
+            merged.append(cur)
+            i += 1
+    return merged
+
+
 def _norm_org(s: str) -> str:
     return _collapse_ws(s).upper().strip(",.;:")
 
@@ -40,8 +62,8 @@ def _filter_relations_in_span(doc: Doc, a: int, b: int) -> List[dict]:
     for r in getattr(doc._, "relations", []):
         hs, he = r["head_offsets"]["start"], r["head_offsets"]["end"]
         ts, te = r["tail_offsets"]["start"], r["tail_offsets"]["end"]
-        #if a <= hs < b and a <= ts < b:
-        if a <= hs and he <= b and a <= ts and te <= b:
+        if a <= hs < b and a <= ts < b:
+        #if a <= hs and he <= b and a <= ts and te <= b:
             rels.append(r)
     return rels
 
@@ -124,9 +146,12 @@ def build_sumario_and_body(doc: Doc, include_local_details: bool = False) -> Tup
              "doc_texts": [_collapse_ws(t) for t in doc_texts],
              }
         )
+    roster_orgs = _merge_orphan_orgs(roster_orgs)
 
     roster: Dict[str, object] = {"cut_index": cut_index, "orgs": roster_orgs}
     body_text = doc.text[cut_index:]
+
+    print("segmenter.py.body_text:<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", body_text)
     # full, unfiltered relations from the entire document (Sumário + Body)
     file_relations: List[dict] = list(getattr(doc._, "relations", []))
     return sumario, roster, body_text, file_relations

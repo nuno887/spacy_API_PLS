@@ -46,6 +46,11 @@ def run_pipeline(raw_text: str, show_debug: bool = False):
     #Build the bundle here and return it
     bundle = _preview_bundle(sumario, roster, body_items, full_text, body_text)
 
+    print("body_items: >>>>>>>>>>>>>>>>>>>>>>>>>>>>>", body_items)
+    print("roster: >>>>>>>>>>>>>>>>>>>>>>>>>>>>>", roster)
+    print("body_doc:>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>", body_doc)
+    print("body_text:>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>", body_text)
+
     return bundle
 
 
