@@ -3,7 +3,30 @@ from typing import List, Dict, Tuple, Optional
 from spacy.tokens import Doc, Span
 from .models import Sumario
 
+import unicodedata
+
 # -------- helpers --------
+
+# ADD near helpers
+def _norm_org_tokens(s: str) -> List[str]:
+    # collapse ws, strip diacritics, uppercase, then split to tokens
+    return _strip_diacritics(_collapse_ws(s)).upper().strip(",.;:").split()
+
+def _is_token_prefix(a: List[str], b: List[str], min_shared: int = 5) -> bool:
+    """
+    Return True if one list is a prefix of the other and the shared prefix
+    has at least `min_shared` tokens.
+    """
+    if not a or not b:
+        return False
+    m = min(len(a), len(b))
+    if m < min_shared:
+        return False
+    return a[:m] == b[:m]
+
+
+def _strip_diacritics(s: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
 
 def _coalesce_split_orgs(roster_orgs: List[Dict[str, object]]) -> List[Dict[str, object]]:
     """
@@ -102,7 +125,7 @@ def _merge_orphan_orgs(roster_orgs: List[Dict[str, object]]) -> List[Dict[str, o
 
 
 def _norm_org(s: str) -> str:
-    return _collapse_ws(s).upper().strip(",.;:")
+    return _strip_diacritics(_collapse_ws(s)).upper().strip(",.;:")
 
 def _filter_ents_in_span(doc: Doc, a: int, b: int) -> Dict[str, List[Tuple[int, int, str, str]]]:
     out: Dict[str, List[Tuple[int, int, str, str]]] = {"ORG": [], "DOC": [], "ORG_SECUNDARIA": []}
@@ -124,16 +147,22 @@ def _filter_relations_in_span(doc: Doc, a: int, b: int) -> List[dict]:
     return rels
 
 def _find_body_start_with_first_repeated_org(doc: Doc) -> int:
-    """Second occurrence (by normalized text) of an ORG marks the body start."""
-    seen: Dict[str, int] = {}
+    """
+    Second occurrence of an ORG marks the body start, where 'occurrence' allows
+    an ORG later to be the earlier ORG plus appended tokens (e.g., ORG + SUBORG),
+    matched accent-insensitively and with whitespace/punctuation normalized.
+    """
+    seen_tokens: List[Tuple[List[str], int]] = []
     for e in _ents_in_order(doc):
         if e.label_ != "ORG":
             continue
-        key = _norm_org(e.text)
-        if key in seen:
-            return e.start_char
-        seen[key] = e.start_char
-    # If no repeat, assume no Sumário; but per your note we can just return len(doc) to keep summary empty.
+        cur = _norm_org_tokens(e.text)
+        # check against all previously seen ORGs
+        for prev_tokens, _ in seen_tokens:
+            # treat as repeat if one is a prefix of the other with sufficient overlap
+            if _is_token_prefix(cur, prev_tokens) or _is_token_prefix(prev_tokens, cur):
+                return e.start_char
+        seen_tokens.append((cur, e.start_char))
     return len(doc.text)
 
 # -------- main API --------
@@ -204,7 +233,7 @@ def build_sumario_and_body(doc: Doc, include_local_details: bool = False) -> Tup
              }
         )
     roster_orgs = _merge_orphan_orgs(roster_orgs)
-    
+
     roster_orgs = _coalesce_split_orgs(roster_orgs)
 
     roster: Dict[str, object] = {"cut_index": cut_index, "orgs": roster_orgs}
