@@ -39,7 +39,7 @@ def run_pipeline(raw_text: str, show_debug: bool = False):
 
     # 3) Body-only doc + re-anchoring into slices
     body_doc = nlp.make_doc(body_text)
-    body_items = build_body_via_sumario_spacy(body_doc, roster, include_local_details=False)
+    body_items = build_body_via_sumario_spacy(body_doc, roster, nlp, include_local_details=False)
 
     if show_debug:
         print_output(full_doc)

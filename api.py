@@ -57,4 +57,5 @@ async def extract(file: UploadFile = File(...)):
 
 
 # uvicorn api:app --reload --host 0.0.0.0 --port 8080
-# 
+
+# python -m uvicorn api:app --reload --host 127.0.0.1 --port 8000

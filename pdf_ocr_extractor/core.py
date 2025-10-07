@@ -311,12 +311,59 @@ def run(cfg: Optional[dict] = None, config_path: Optional[str] = None) -> List[V
 
     return process_many(pdfs, cfg)
 
+# para apagar, esta função é so para testes
+def run_input_dir_once(config_path: Optional[str] = None) -> List[VirtualTextFile]:
+    """
+    Process all *.pdf in pdf_ocr_extractor/input using ONLY this module.
+    Honors appsettings.json if present; otherwise uses defaults.
+    Returns a list of VirtualTextFile results.
+    """
+    cfg = load_settings(config_path)
+    # Force InputDir to package-local "input" folder if not set
+    pkg_input = (Path(__file__).parent / "input").resolve()
+    cfg["InputDir"] = str(pkg_input)
+    _apply_tesseract_env(cfg)
+
+    pdfs = sorted(pkg_input.glob("*.pdf"))
+    if not pdfs:
+        # Produce a single 'virtual' result that explains the situation
+        v = VirtualTextFile(filename="(no-files).txt", content=b"", text="")
+        log_info(v.log, "(runner)", f"No PDFs found in: {pkg_input}")
+        return [v]
+
+    return process_many(pdfs, cfg)
 
 # ---------------------------
 # (Optional) CLI – prints filenames + sizes; no disk writes
 # ---------------------------
 if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+
+    # Always load settings and apply env
     cfg = load_settings()
-    results = run(cfg)
-    for v in results:
-        print(f"{v.filename}  ({len(v.content)} bytes)  logs={len(v.log)}")
+    _apply_tesseract_env(cfg)
+
+    def _print_raw(v):
+        # Print ONLY the text — no filenames, no logs, no previews
+        # Ensure we always end with a newline for clean piping
+        txt = v.text or ""
+        # Avoid double newlines if text already ends with one
+        if txt and not txt.endswith("\n"):
+            txt += "\n"
+        sys.stdout.write(txt)
+
+    if len(sys.argv) > 1:
+        # Single file mode
+        pdf_path = Path(sys.argv[1])
+        v = process_pdf_file(pdf_path, cfg)
+        _print_raw(v)
+    else:
+        # Folder mode: process all PDFs in pdf_ocr_extractor/input
+        pkg_input = (Path(__file__).parent / "input").resolve()
+        cfg["InputDir"] = str(pkg_input)
+        pdfs = sorted(pkg_input.glob("*.pdf"))
+        # If multiple PDFs are present, their texts will be printed back-to-back.
+        results = process_many(pdfs, cfg)
+        for v in results:
+            _print_raw(v)

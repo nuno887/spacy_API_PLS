@@ -1,10 +1,11 @@
 # body_refind.py
-# spaCy-based re-anchoring using PhraseMatcher on the BODY-ONLY doc, no extra normalization
+# Robust re-anchoring using normalized shadow text + regex over BODY-ONLY doc.
+# Handles line breaks, NBSPs, diacritics, and common ordinal glyph variants, while
+# preserving strict ALL-CAPS validation for ORG/SUBORG on the *original* text.
 
 import re
-from typing import Dict, List, Tuple
-import spacy
-from spacy.matcher import PhraseMatcher
+import unicodedata
+from typing import Dict, List, Tuple, Callable, Optional
 from spacy.tokens import Doc
 from .models import BodyItem
 
@@ -32,13 +33,202 @@ def _passes_all_caps_gate(text: str) -> bool:
             return False
     return True
 
+# -------------------- Normalization helpers --------------------
+
+_WHITESPACE_RX = re.compile(r"\s+")
+
+def _strip_diacritics(s: str) -> str:
+    # Convert to NFKD then drop combining marks
+    nk = unicodedata.normalize("NFKD", s)
+    return "".join(ch for ch in nk if not unicodedata.combining(ch))
+
+def _canonical_glyphs(s: str) -> str:
+    # Map ordinal/degree glyphs to ASCII-ish (for matching only)
+    # Also heal common OCR variants globally (safe for matching)
+    s = s.replace("\u00A0", " ")  # NBSP -> space
+    s = s.replace("º", "o").replace("°", "o").replace("ª", "a")
+    return s
+
+def _heal_hyphen_linebreak_pairs(original: str, i: int) -> Tuple[bool, int]:
+    """
+    If we see a discretionary hyphen at EOL like '-\\n' or '-\\r\\n', signal to skip both
+    the hyphen and the line break (joining words without space). Return (skip, new_i).
+    """
+    if original[i] != "-":
+        return (False, i)
+    # Look ahead for CRLF or LF
+    if i + 1 < len(original) and original[i + 1] == "\n":
+        return (True, i + 2)  # skip '-' and '\n'
+    if i + 2 < len(original) and original[i + 1] == "\r" and original[i + 2] == "\n":
+        return (True, i + 3)  # skip '-' + CRLF
+    return (False, i)
+
+def _build_normalized_with_map(original: str) -> Tuple[str, List[int]]:
+    """
+    Build a shadow 'normalized' string used only for matching, plus a map norm_idx->orig_idx.
+    Normalization steps:
+      - NFKC
+      - heal hyphen+linebreak joins (CULTU-\\nRA -> CULTURA)
+      - fold ordinal glyphs (º, °, ª) to ASCII
+      - strip diacritics
+      - lowercase
+      - collapse any whitespace (incl. newlines, tabs, NBSP) to a single space
+    """
+    # First pass: NFKC
+    src = unicodedata.normalize("NFKC", original)
+
+    norm_chars: List[str] = []
+    idx_map: List[int] = []
+
+    i = 0
+    prev_was_space = False
+    while i < len(src):
+        ch = src[i]
+
+        # Heal hyphen + line break (join words, no space)
+        skip, new_i = _heal_hyphen_linebreak_pairs(src, i)
+        if skip:
+            i = new_i
+            prev_was_space = False  # we're joining words
+            continue
+
+        # Normalize whitespace to a single space
+        if ch.isspace():
+            if not prev_was_space and len(norm_chars) > 0:
+                norm_chars.append(" ")
+                # map this normalized space to the current original index
+                idx_map.append(i)
+            elif not prev_was_space and len(norm_chars) == 0:
+                # avoid leading space; also map it consistently
+                norm_chars.append(" ")
+                idx_map.append(i)
+            prev_was_space = True
+            i += 1
+            continue
+
+        prev_was_space = False
+
+        # Canonicalize glyphs
+        ch2 = _canonical_glyphs(ch)
+
+        # Strip diacritics
+        ch3 = _strip_diacritics(ch2)
+
+        # Lowercase
+        for out_ch in ch3.lower():
+            norm_chars.append(out_ch)
+            idx_map.append(i)
+
+        i += 1
+
+    # Collapse any multiple spaces created at the very start/end
+    norm = "".join(norm_chars)
+    norm = _WHITESPACE_RX.sub(" ", norm).strip()
+
+    # Re-trim idx_map to match trim in norm
+    # Find the first and last non-space in the constructed norm_chars to approximate mapping
+    # (Since we collapsed whitespace during construction, leading/trailing spaces are minimal.)
+    if norm:
+        # nothing extra to trim because we already stripped. idx_map length equals len(norm_chars before strip)
+        # To be safe, rebuild again with collapse+strip mirrored on idx_map:
+        # We'll rebuild norm and idx_map together in a final pass.
+        final_norm_chars: List[str] = []
+        final_idx_map: List[int] = []
+        prev_space = False
+        for ch, oi in zip("".join(norm_chars), idx_map):
+            if ch.isspace():
+                if not prev_space and len(final_norm_chars) > 0:
+                    final_norm_chars.append(" ")
+                    final_idx_map.append(oi)
+                prev_space = True
+            else:
+                final_norm_chars.append(ch)
+                final_idx_map.append(oi)
+                prev_space = False
+        # strip leading/trailing space
+        if final_norm_chars and final_norm_chars[0] == " ":
+            final_norm_chars.pop(0)
+            final_idx_map.pop(0)
+        if final_norm_chars and final_norm_chars[-1] == " ":
+            final_norm_chars.pop()
+            final_idx_map.pop()
+
+        norm = "".join(final_norm_chars)
+        idx_map = final_idx_map
+    else:
+        idx_map = []
+
+    return norm, idx_map
+
+def _normalize_phrase_for_regex(s: str) -> str:
+    """
+    Same normalization as the body (conceptually), but without building a map:
+      - NFKC -> glyph canonicalization -> strip diacritics -> lowercase -> collapse whitespace
+    Then escape regex metachars and replace internal spaces with '\\s+'.
+    """
+    s = unicodedata.normalize("NFKC", s)
+    s = _canonical_glyphs(s)
+    s = _strip_diacritics(s).lower()
+    s = _WHITESPACE_RX.sub(" ", s).strip()
+    # Escape regex meta chars
+    parts = [re.escape(p) for p in s.split(" ") if p]
+    if not parts:
+        return ""
+    return r"\s+".join(parts)
+
+# -------------------- Matching over normalized text --------------------
+
+def _gather_regex_candidates(
+    norm_body: str,
+    idx_map: List[int],
+    phrases: List[str],
+    *,
+    enforce_caps_on_original: bool,
+    original_text: str,
+) -> Dict[str, List[Tuple[int, int]]]:
+    """
+    For each phrase, compile a regex over the normalized body that tolerates any whitespace.
+    Map normalized match spans back to original text using idx_map. Optionally enforce ALL-CAPS on original.
+    Returns: phrase -> list[(orig_start, orig_end)]
+    """
+    out: Dict[str, List[Tuple[int, int]]] = {}
+    for p in phrases:
+        pat = _normalize_phrase_for_regex(p)
+        if not pat:
+            continue
+        rx = re.compile(pat)
+        hits: List[Tuple[int, int]] = []
+        for m in rx.finditer(norm_body):
+            nst, nen = m.start(), m.end()
+            if nst >= len(idx_map) or nen - 1 >= len(idx_map):
+                continue
+            # Map normalized positions to original indices
+            orig_start = idx_map[nst]
+            orig_end = idx_map[nen - 1] + 1  # end-exclusive
+            if enforce_caps_on_original:
+                # run gate on original slice
+                if not _passes_all_caps_gate(original_text[orig_start:orig_end]):
+                    continue
+            hits.append((orig_start, orig_end))
+        if hits:
+            hits.sort(key=lambda t: (t[0], -t[1]))
+            out[p] = hits
+    return out
+
 # -------------------- Main --------------------
 
-def build_body_via_sumario_spacy(doc: Doc, roster: Dict[str, object], include_local_details: bool = False) -> List[BodyItem]:
+def build_body_via_sumario_spacy(
+    doc: Doc,
+    roster: Dict[str, object],
+    pattern_tokenizer=None,            # kept for compatibility; not used in regex approach
+    include_local_details: bool = False
+) -> List[BodyItem]:
     """
-    Match the roster's ORG / ORG_SECUNDARIA / DOC strings in the BODY-ONLY `doc` with spaCy PhraseMatcher,
-    enforce ALL-CAPS for ORG/SUBORG, assign in roster order, and slice sections by DOC anchors.
-    If no DOCs are found for an ORG, fall back to slicing by ORG_SECUNDARIA.
+    Match the roster's ORG / ORG_SECUNDARIA / DOC strings in the BODY-ONLY `doc` using a
+    normalized shadow text + regex that tolerates whitespace, diacritics, and common glyph variants.
+    ORG/SUBORG matches are still validated via ALL-CAPS on the original text.
+    Assign in roster order and slice sections by DOC anchors. If no DOCs are found for an ORG,
+    fall back to slicing by ORG_SECUNDARIA.
     """
     full_text = doc.text
 
@@ -52,60 +242,32 @@ def build_body_via_sumario_spacy(doc: Doc, roster: Dict[str, object], include_lo
         for o in roster.get("orgs", [])
     ]
 
-    # Prepare a PT tokenizer just to segment pattern strings,
-    # then rebuild pattern Docs with the SAME vocab as the body doc.
-    pt_nlp = spacy.blank("pt")
-    def make_pat(text: str) -> Doc:
-        tmp = pt_nlp.make_doc(text)
-        return Doc(doc.vocab, words=[t.text for t in tmp])
+    # 1) Build normalized shadow body + index map
+    norm_body, idx_map = _build_normalized_with_map(full_text)
 
-    # One PhraseMatcher, three groups
-    matchers: Dict[str, PhraseMatcher] = {
-        "ORG": PhraseMatcher(doc.vocab, attr="LOWER"),
-        "ORG_SECUNDARIA": PhraseMatcher(doc.vocab, attr="LOWER"),
-        "DOC": PhraseMatcher(doc.vocab, attr="LOWER"),
-    }
-    key_to_phrase: Dict[str, str] = {}
-
-    def add_phrases(label: str, phrases: List[str]) -> None:
-        seen = set()
-        for i, p in enumerate(phrases):
-            if not p or p in seen:
-                continue
-            seen.add(p)
-            pat_doc = make_pat(p)
-            key = f"{label}:{i}"
-            key_to_phrase[key] = p
-            matchers[label].add(key, [pat_doc])
-
-    # Collect phrases from roster in Sumário order
+    # 2) Collect phrases from roster in Sumário order
     org_phrases = [b["org_text"] for b in blueprint]
     sub_phrases = [s["text"] for b in blueprint for s in b["suborgs"]]
     doc_phrases = [d["text"] for b in blueprint for d in b["docs"]]
 
-    add_phrases("ORG", org_phrases)
-    add_phrases("ORG_SECUNDARIA", sub_phrases)
-    add_phrases("DOC", doc_phrases)
+    # 3) Gather candidates via regex on normalized body; validate caps for ORG/SUBORG
+    org_cands = _gather_regex_candidates(
+        norm_body, idx_map, org_phrases,
+        enforce_caps_on_original=True,
+        original_text=full_text,
+    )
+    sub_cands = _gather_regex_candidates(
+        norm_body, idx_map, sub_phrases,
+        enforce_caps_on_original=True,
+        original_text=full_text,
+    )
+    doc_cands = _gather_regex_candidates(
+        norm_body, idx_map, doc_phrases,
+        enforce_caps_on_original=False,
+        original_text=full_text,
+    )
 
-    # Run matchers on the BODY doc; collect candidates keyed by the literal phrase text
-    def gather_candidates(label: str) -> Dict[str, List[Tuple[int, int]]]:
-        out: Dict[str, List[Tuple[int, int]]] = {}
-        for match_id, start, end in matchers[label](doc):
-            key = doc.vocab.strings[match_id]  # e.g., "ORG:0"
-            phrase = key_to_phrase.get(key, "")
-            span = doc[start:end]
-            if label in ("ORG", "ORG_SECUNDARIA") and not _passes_all_caps_gate(span.text):
-                continue
-            out.setdefault(phrase, []).append((span.start_char, span.end_char))
-        for k in out:
-            out[k].sort(key=lambda p: (p[0], -p[1]))
-        return out
-
-    org_cands = gather_candidates("ORG")
-    sub_cands = gather_candidates("ORG_SECUNDARIA")
-    doc_cands = gather_candidates("DOC")
-
-    # Assign in roster order with a moving cursor
+    # 4) Assign ORGs in roster order with a moving cursor (left-to-right, non-overlapping)
     assigned_orgs: List[Dict] = []
     cursor = 0
 
@@ -115,7 +277,6 @@ def build_body_via_sumario_spacy(doc: Doc, roster: Dict[str, object], include_lo
                 return assigned_orgs[j]["assigned"][0]
         return len(full_text)
 
-    # ORGs
     for b in blueprint:
         phrase = b["org_text"]
         cands = org_cands.get(phrase, [])
@@ -127,8 +288,8 @@ def build_body_via_sumario_spacy(doc: Doc, roster: Dict[str, object], include_lo
                 break
         assigned_orgs.append({**b, "assigned": chosen})
 
-    # For each ORG section, assign SUBORGs and DOCs; slice sections using DOC anchors,
-    # or fall back to slicing by SUBORGs if no DOCs are present.
+    # 5) For each ORG section, assign SUBORGs and DOCs; slice sections using DOC anchors,
+    #    or fall back to slicing by SUBORGs if no DOCs are present.
     body_items: List[BodyItem] = []
     order_idx = 1
 
@@ -168,6 +329,18 @@ def build_body_via_sumario_spacy(doc: Doc, roster: Dict[str, object], include_lo
                     break
             if chosen:
                 doc_assignments.append(chosen)
+
+        # Tiny safety net: if no DOCs found inside section, try a short look-back window
+        if not doc_assignments:
+            lookback = max(0, org_en - 120)
+            for d in org_entry["docs"]:
+                phrase = d["text"]
+                for st, en in doc_cands.get(phrase, []):
+                    if lookback <= st < org_en:
+                        doc_assignments = [(st, en)]
+                        break
+                if doc_assignments:
+                    break
 
         # Fallback: slice by SUBORGs if there are no DOCs
         if not doc_assignments:

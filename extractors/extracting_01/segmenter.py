@@ -139,6 +139,7 @@ def build_sumario_and_body(doc: Doc, include_local_details: bool = False) -> Tup
         doc_texts = [
             ent_text_by_offsets.get((ts, te, "DOC"), "")
             for (ts, te) in org_to_doc.get(key, [])
+            if "," not in ent_text_by_offsets.get((ts, te, "DOC"), "")
         ]
         roster_orgs.append(
             {"org_text": _collapse_ws(org_text),

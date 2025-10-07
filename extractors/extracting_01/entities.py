@@ -31,7 +31,7 @@ DOC_LABELS_SECTION = {
     "LISTA", "LISTAS",
     "ANÚNCIO", "ANUNCIO", "ANÚNCIO (RESUMO)", "ANUNCIO (RESUMO)",
     "CONVOCATÓRIA", "CONVOCATORIA", "REVOGAÇÃO", "REVOGACAO","CONTRATO", "DECRETO", "RESOLUÇÃO", "RESOLUCAO", "DECRETO REGULAMENTAR REGIONAL", "PORTARIA", "MUDANÇA", "MUDANCA",
-    "CONVERTIDO", "CESSAÇÃO","CESSACAO"
+    "CONVERTIDO", "CESSAÇÃO","CESSACAO", "DELIBERAÇÃO", "DELIBERACAO"
 }
 
 # Company-level doc anchor (used for look-ahead or simple detection)
@@ -98,7 +98,7 @@ def is_doc_label_line(line: str) -> bool:
     if head in DOC_LABELS_SECTION:
         return True
     # numbered forms like "DESPACHO n.º 59/2012"
-    if head.startswith(("DESPACHO", "DECLARAÇÃO", "DECLARACAO", "RETIFICAÇÃO", "RECTIFICAÇÃO", "AVISO", "AVISOS", "EDITAL", "ANÚNCIO", "ANUNCIO", "REVOGAÇÃO","REVOGACAO","CONTRATO","DECRETO", "RESOLUÇÃO", "RESOLUCAO", "PORTARIA")):
+    if head.startswith(("DESPACHO", "DECLARAÇÃO", "DECLARACAO", "RETIFICAÇÃO", "RECTIFICAÇÃO", "AVISO", "AVISOS", "EDITAL", "ANÚNCIO", "ANUNCIO", "REVOGAÇÃO","REVOGACAO","CONTRATO","DECRETO", "RESOLUÇÃO", "RESOLUCAO", "PORTARIA", "DELIBERAÇÃO", "DELIBERACAO")):
         if any(nm in head for nm in ("N.º", "Nº", "N°", "N.O", "N.O.")):
             return True
     # contrato de sociedade
