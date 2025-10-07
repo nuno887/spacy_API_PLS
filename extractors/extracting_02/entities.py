@@ -89,7 +89,6 @@ def _normalize_heading_text(s: str) -> str:
 def _normalize_aliases(aliases: List[str]) -> List[str]:
     out = set()
     for a in aliases:
-        # add both as-is and without trailing colon
         variants = {a, a[:-1] if a.endswith(":") else a}
         for v in variants:
             out.add(_normalize_heading_text(v))
@@ -111,6 +110,12 @@ def _starts_with_starter(ln: str) -> bool:
     first = re.split(r'[\s\-–—:,;./]+', t, 1)[0]
     return first.upper() in HEADER_STARTERS
 
+def clean_item_text(raw: str) -> str:
+    raw = raw.replace("-\n", "").replace("­\n", "")
+    raw = re.sub(r'\s*\n\s*', ' ', raw).strip()
+    raw = re.sub(r'\.*\s*$', '', raw).strip()
+    return raw
+
 def _dedup_spans(spans: List[Span]) -> List[Span]:
     seen = set()
     out = []
@@ -122,27 +127,17 @@ def _dedup_spans(spans: List[Span]) -> List[Span]:
         out.append(s)
     return out
 
-def clean_item_text(raw: str) -> str:
-    raw = raw.replace("-\n", "").replace("­\n", "")
-    raw = re.sub(r'\s*\n\s*', ' ', raw).strip()
-    raw = re.sub(r'\.*\s*$', '', raw).strip()
-    return raw
-
 # -----------------------------------------------------------------------------
-# Build a matcher over ALL aliases (accents and no-accents); keep map → Node
+# Build a matcher over ALL aliases (we'll use alias_to_nodes in a line scanner)
 # -----------------------------------------------------------------------------
-# --- CHANGED (inside build_heading_matcher) ---
 def build_heading_matcher(nlp) -> Tuple[PhraseMatcher, Dict[str, List[Node]]]:
     alias_to_nodes: Dict[str, List[Node]] = defaultdict(list)
-    patterns = []
     for node in TAXONOMY:
         for norm_alias in _normalize_aliases(node.aliases):
-            # prevent duplicate nodes per normalized alias
+            # prevent duplicate nodes per normalized alias (by canonical)
             if node.canonical not in {n.canonical for n in alias_to_nodes[norm_alias]}:
                 alias_to_nodes[norm_alias].append(node)
-            # (we don't actually use 'patterns' later; leave as-is)
     return PhraseMatcher(nlp.vocab), alias_to_nodes
-
 
 # -----------------------------------------------------------------------------
 # Heading detection via line scanning (allows diacritic-insensitive matching)
@@ -165,7 +160,8 @@ def scan_headings(text: str, alias_to_nodes: Dict[str, List[Node]]) -> List[Head
         pos += len(ln)
 
     hits: List[HeadingHit] = []
-    seen_hits = set() # start and end char
+    seen_hits = set()  # (start_char, end_char, canonical)
+
     for i, ln in enumerate(lines):
         surface = ln.strip()
         if not surface:
@@ -173,7 +169,6 @@ def scan_headings(text: str, alias_to_nodes: Dict[str, List[Node]]) -> List[Head
         norm = _normalize_heading_text(surface)
         if not norm:
             continue
-        # try to match full line to alias
         nodes = alias_to_nodes.get(norm)
         if not nodes:
             continue
@@ -224,7 +219,6 @@ def find_org_spans(doc, text: str) -> List[Span]:
 
 # -----------------------------------------------------------------------------
 # Parse: builds hierarchy with stack + items; returns (doc, sections_tree)
-# sections_tree is a list of leaf nodes with path/surface/span/items
 # -----------------------------------------------------------------------------
 def parse(text: str, nlp):
     """
@@ -237,27 +231,25 @@ def parse(text: str, nlp):
 
     # 1) find all heading line hits (may include ambiguous aliases)
     hits = scan_headings(text, alias_to_nodes)
-    # sort by position
     hits.sort(key=lambda h: h.start_char)
 
     # 2) resolve ambiguity contextually using a stack (parents)
-    # Stack holds tuples: (canonical, level, start_char_of_heading, end_char_of_heading, surface)
     stack: List[Tuple[str, int, int, int, str]] = []
-    # The leaves we collect
     leaves: List[Dict] = []
-    leaf_seen = set() # leaf_heading_start, leaf_eading_end, tuple(path)
+    leaf_seen = set()  # (leaf_heading_start, leaf_heading_end, tuple(path))
 
     def close_leaf_if_any(next_start: int):
+        """Close current leaf’s text range at next_start (exclusive) and push to leaves."""
         if not stack:
             return
         leaf = stack[-1]
-        leaf_path = [s[0] for s in stack]
-        leaf_surfaces = [s[4] for s in stack]
+        leaf_path = [s[0] for s in stack]              # canonicals
+        leaf_surfaces = [s[4] for s in stack]          # surfaces including colon
         leaf_heading_start = leaf[2]
         leaf_heading_end = leaf[3]
-        key = (leaf_heading_start, leaf_heading_end, tuple(leaf_path))
         text_start = leaf_heading_end
         text_end = next_start
+        key = (leaf_heading_start, leaf_heading_end, tuple(leaf_path))
         if text_start < text_end and key not in leaf_seen:
             leaf_seen.add(key)
             leaves.append({
@@ -275,29 +267,23 @@ def parse(text: str, nlp):
     i = 0
     while i < len(hits):
         hit = hits[i]
-        # for this line, there may be multiple candidate nodes (same alias); choose one by context
-        # gather all nodes that produce this hit (same normalized alias); we must recompute from alias map:
         norm = _normalize_heading_text(hit.surface)
         candidates = alias_to_nodes.get(norm, [])
-        # choose by allowed parents + level rules
+        # choose by allowed parents
         chosen: Optional[Node] = None
-        # current parent canonical on stack (None if empty)
         current_parent = stack[-1][0] if stack else None
-        current_level = stack[-1][1] if stack else 0
 
-        # priority: (1) allowed_by_parents, (2) highest level > current_level? if equal or lower, still valid but will pop appropriately.
-        for node in sorted(candidates, key=lambda n: (-n.level, -len(_normalize_heading_text(n.canonical)))):  # prefer deeper, more specific
+        for node in sorted(candidates, key=lambda n: (-n.level, -len(_normalize_heading_text(n.canonical)))):
             if allowed_by_parents(node, current_parent):
                 chosen = node
                 break
         if chosen is None:
-            # fallback: take the one with no parent restrictions or the first
             chosen = next((n for n in candidates if n.parents is None), candidates[0])
 
-        # close leaf up to this heading start
+        # close current leaf up to this heading start
         close_leaf_if_any(hit.start_char)
 
-        # pop until stack parent fits the chosen node
+        # pop until parent fits
         while stack and stack[-1][1] >= chosen.level:
             stack.pop()
 
@@ -338,8 +324,6 @@ def parse(text: str, nlp):
 
         block_start = 0
         for i, ln in enumerate(seg_lines):
-            abs_line_start = offs[i]
-
             # Case 1: pure dots line → close previous block
             if DOT_LEADER_LINE_RE.match(ln):
                 s = block_start
@@ -387,23 +371,17 @@ def parse(text: str, nlp):
                 continue
             item_spans.append(Span(doc, chspan.start, chspan.end, label=f"Item{leaf['path'][-1]}"))
 
-    # 5) Finalize doc.ents without overlaps
+    # 5) Finalize doc.ents without overlaps or duplicates
     all_spans = org_spans + heading_leaf_spans + item_spans
-    all_spans = _dedup_spans(all_spans)
-    all_spans = filter_spans(all_spans)
-    doc.ents = tuple(_dedup_spans(all_spans)) # aranoic dedup, delete later...
+    all_spans = _dedup_spans(all_spans)          # remove exact duplicates first
+    all_spans = filter_spans(all_spans)          # resolve overlaps
+    doc.ents = tuple(_dedup_spans(all_spans))    # defensive dedup
 
-    # 6) Build a clean sections_tree with items
+    # 6) Build a clean sections_tree with items (dedup items per leaf)
     sections_tree = []
-    # index items by range for quick lookup
-    item_by_leaf: Dict[Tuple[int, int], List[Dict]] = defaultdict(list)
-    
-    for sp in doc.ents:
-        if sp.label_.startswith("Item"):
-            item_by_leaf[(sp.start_char, sp.end_char)]  # placeholder to avoid lint noise
-    # simpler: collect items per leaf by containment
-    items_per_leaf: Dict[int, List[Dict]] = defaultdict(list)  # key by id(leaves[i])
+    items_per_leaf: Dict[int, List[Dict]] = defaultdict(list)
     seen_item_spans_per_leaf: Dict[int, set] = defaultdict(set)
+
     for leaf in leaves:
         sc, ec = leaf["text_range"]
         lid = id(leaf)
