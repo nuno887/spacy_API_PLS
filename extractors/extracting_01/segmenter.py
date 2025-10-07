@@ -4,6 +4,62 @@ from spacy.tokens import Doc, Span
 from .models import Sumario
 
 # -------- helpers --------
+
+def _coalesce_split_orgs(roster_orgs: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """
+    If an ORG has exactly one SUBORG and there exists a later ORG whose org_text equals
+    the concatenation of ORG + SUBORG (whitespace-collapsed, punctuation-trimmed),
+    then:
+      - replace the earlier entry's org_text with the concatenation,
+      - clear its suborg_texts,
+      - merge doc_texts (dedupe, preserving order),
+      - delete the later duplicate entry,
+      - keep the earlier position.
+    Repeat until no such pairs remain.
+    """
+    def norm_key(s: str) -> str:
+        return _norm_org(s)  # collapse ws, upper, strip trailing ,.;:
+
+    i = 0
+    while i < len(roster_orgs):
+        cur = roster_orgs[i]
+        subs = cur.get("suborg_texts") or []
+        if len(subs) == 1:
+            combined = _collapse_ws(f'{cur.get("org_text","")} {subs[0]}')
+            key_combined = norm_key(combined)
+
+            # find a *later* org with exactly this combined text
+            j = i + 1
+            found = -1
+            while j < len(roster_orgs):
+                if norm_key(roster_orgs[j].get("org_text","")) == key_combined:
+                    found = j
+                    break
+                j += 1
+
+            if found != -1:
+                # merge docs (dedupe, preserve order: earlier first)
+                docs_i = cur.get("doc_texts") or []
+                docs_j = roster_orgs[found].get("doc_texts") or []
+                merged_docs = []
+                for t in docs_i + docs_j:
+                    if t and t not in merged_docs:
+                        merged_docs.append(t)
+
+                # mutate earlier entry
+                cur["org_text"] = combined
+                cur["suborg_texts"] = []
+                cur["doc_texts"] = merged_docs
+
+                # drop the later duplicate entry
+                del roster_orgs[found]
+                # do not advance i; there might be more to coalesce relative to this slot
+                continue
+        i += 1
+
+    return roster_orgs
+
+
 def _collapse_ws(s: str) -> str:
     return " ".join(s.split())
 
@@ -148,6 +204,8 @@ def build_sumario_and_body(doc: Doc, include_local_details: bool = False) -> Tup
              }
         )
     roster_orgs = _merge_orphan_orgs(roster_orgs)
+    
+    roster_orgs = _coalesce_split_orgs(roster_orgs)
 
     roster: Dict[str, object] = {"cut_index": cut_index, "orgs": roster_orgs}
     body_text = doc.text[cut_index:]
