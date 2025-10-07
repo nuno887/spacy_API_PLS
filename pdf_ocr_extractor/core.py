@@ -365,5 +365,5 @@ if __name__ == "__main__":
         pdfs = sorted(pkg_input.glob("*.pdf"))
         # If multiple PDFs are present, their texts will be printed back-to-back.
         results = process_many(pdfs, cfg)
-        for v in results:
+        for v in results[2000:]:
             _print_raw(v)

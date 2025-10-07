@@ -1,5 +1,3 @@
-# main.py
-from pathlib import Path
 import json
 import spacy
 
@@ -12,7 +10,6 @@ from .body_refind import build_body_via_sumario_spacy
 
 def run_pipeline(raw_text: str, show_debug: bool = False):
     """
-    Two-pass pipeline WITHOUT assembler.py:
       1) Sumário + roster + body_text (segmenter)
       2) Re-anchor roster strings in BODY-ONLY doc (body_refind) -> BodyItem slices
     Returns:

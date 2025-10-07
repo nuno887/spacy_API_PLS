@@ -330,20 +330,3 @@ def print_output(doc: Doc) -> None:
         print(f"{head_label} -> {tail_label} {relation} | {head_text} -> {tail_text}")
 
 
-"""
-# ---------------- Runner ----------------
-def process_text(raw_text: str) -> None:
-    text = normalize_text(raw_text)
-    # Tokenizer only; models disabled to keep control
-    nlp = spacy.load("pt_core_news_lg", disable=["ner", "tagger", "parser", "lemmatizer"])
-    doc = nlp.make_doc(text)
-
-    # Detect entities with structural rules
-    doc.ents = detect_entities(doc)
-
-    build_relations(doc)
-
-    # Print output (relations intentionally omitted for now)
-    print_output(doc)
-
-"""
