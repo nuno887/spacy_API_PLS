@@ -127,6 +127,219 @@ def _dedup_spans(spans: List[Span]) -> List[Span]:
         out.append(s)
     return out
 
+def canonical_org_key(s: str) -> str:
+    """Uppercase, strip diacritics, drop all non-alphanumerics.
+    This collapses 'S E C R E T A R I A' and 'Direcção/Dir e c c ã o' to stable keys."""
+    t = _strip_diacritics(s).upper()
+    return re.sub(r'[^A-Z0-9]+', '', t)
+
+_SUMARIO_PAT = re.compile(r'\bS[UÚ]M[ÁA]RIO\b', re.IGNORECASE)
+
+def find_sumario_anchor(text: str) -> Optional[int]:
+    m = _SUMARIO_PAT.search(text)
+    return m.start() if m else None
+
+def find_first_l1_heading_after(text: str, start_pos: int) -> Optional[int]:
+    """Light hint for 'body' start if no ORG is found right away."""
+    # Use your L1 taxonomy aliases (accent/colon tolerant)
+    aliases = []
+    for node in L1_NODES:
+        aliases.extend(node.aliases)
+    pats = [re.compile(r'\b' + re.escape(a).replace(r'\:', r':?') + r'\b', re.IGNORECASE) for a in set(aliases)]
+    best = None
+    for pat in pats:
+        m = pat.search(text, pos=start_pos)
+        if m:
+            if best is None or m.start() < best:
+                best = m.start()
+    return best
+
+
+def split_sumario_body(text: str, org_spans_fulltext: List[Span]) -> Tuple[Tuple[int,int], Tuple[int,int]]:
+    """
+    Return (sumario_span, body_span) as (start,end) into full text.
+
+    Primary: Body starts at the 'second ORG' of the first valid ORG→ORG pair (earliest second occurrence).
+    Fallback: first L1 heading after the Sumário anchor (if any), else after start; last resort: a conservative window.
+    """
+    S = find_sumario_anchor(text)  # may be None
+
+    # 1) Try the 'second ORG' rule
+    body_start = _choose_body_start_by_second_org(org_spans_fulltext, text, S)
+
+    # 2) Fallbacks
+    if body_start is None:
+        # first L1 heading after anchor (or after 0 if no anchor)
+        search_from = S if S is not None else 0
+        body_start = find_first_l1_heading_after(text, search_from)
+
+    if body_start is None:
+        # conservative cap (avoid putting entire doc in Sumário)
+        base = S if S is not None else 0
+        body_start = min(len(text), base + 20000)
+
+    # 3) Sumário starts at anchor if present; else from start (unchanged behavior)
+    sum_start = S if S is not None else 0
+    return (sum_start, body_start), (body_start, len(text))
+
+
+def collect_org_hits_in_span(doc, text: str, span: Tuple[int,int], source: str) -> List[dict]:
+    """Filter already-found ORG spans to this [start,end) and return originals + canonical keys."""
+    start, end = span
+    hits = []
+    for sp in doc.ents:
+        if sp.label_ != "ORG":
+            continue
+        if sp.start_char >= start and sp.end_char <= end:
+            hits.append({
+                "source": source,  # "sumario" or "body"
+                "surface_raw": text[sp.start_char:sp.end_char],
+                "span": {"start": sp.start_char, "end": sp.end_char},
+                "canonical_key": canonical_org_key(text[sp.start_char:sp.end_char]),
+            })
+    return hits
+
+
+def link_orgs(sumario_hits: List[dict], body_hits: List[dict]) -> Tuple[List[dict], dict]:
+    """Return (relations, diagnostics). Greedy 1–1 pairing by first seen per canonical key."""
+    # Index body hits by canonical key, preserve order
+    body_by_key: Dict[str, List[dict]] = defaultdict(list)
+    for h in body_hits:
+        body_by_key[h["canonical_key"]].append(h)
+
+    relations = []
+    unmatched_sumario = []
+    for h in sumario_hits:
+        key = h["canonical_key"]
+        lst = body_by_key.get(key, [])
+        if lst:
+            b = lst.pop(0)  # greedy 1–1
+            relations.append({
+                "key": key,
+                "sumario": {"surface_raw": h["surface_raw"], "span": h["span"]},
+                "body": {"surface_raw": b["surface_raw"], "span": b["span"]},
+                "confidence": 1.0
+            })
+        else:
+            unmatched_sumario.append(h)
+
+    # Remaining body hits with no pair
+    unmatched_body = [b for hits in body_by_key.values() for b in hits]
+
+    diagnostics = {
+        "unmatched_sumario_orgs": unmatched_sumario,
+        "unmatched_body_orgs": unmatched_body
+    }
+    return relations, diagnostics
+
+def _choose_body_start_by_second_org(org_spans_fulltext: List[Span],
+                                     text: str,
+                                     sumario_anchor: Optional[int]) -> Optional[int]:
+    """
+    Returns the earliest start_char among all 'second occurrences' of any ORG canonical key.
+    If sumario_anchor is given, only consider pairs where the 2nd occurrence is after the anchor.
+    """
+    from collections import defaultdict
+
+    # Build ordered occurrences per canonical key
+    occ_by_key = defaultdict(list)  # key -> [start_char, ...] sorted
+    for sp in sorted(org_spans_fulltext, key=lambda s: s.start_char):
+        surf = text[sp.start_char:sp.end_char]
+        key = canonical_org_key(surf)
+        occ_by_key[key].append(sp.start_char)
+
+    # Gather candidate 2nd-occurrence starts (optionally filtered by anchor)
+    candidates = []
+    for key, starts in occ_by_key.items():
+        if len(starts) >= 2:
+            second = starts[1]
+            if sumario_anchor is None or second > sumario_anchor:
+                candidates.append(second)
+
+    if not candidates:
+        return None
+    return min(candidates)
+
+
+def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int):
+    """
+    sections_tree: output of parse(sumario_text, nlp)
+    offset: start char of sumário within full text_raw
+    sumario_len: len(sumario_text)
+    """
+    # 1) sections (adjust spans to full-text coordinates)
+    sections = []
+    for leaf in sections_tree:
+        adj_heading_span = {
+            "start": leaf["span"]["start"] + offset,
+            "end":   leaf["span"]["end"]   + offset,
+        }
+        items = []
+        for it in leaf["items"]:
+            items.append({
+                "text": it["text"],
+                "span": {
+                    "start": it["span"]["start"] + offset,
+                    "end":   it["span"]["end"]   + offset,
+                },
+            })
+        sections.append({
+            "path": leaf["path"],
+            "surface_path": leaf["surface"],
+            "span": adj_heading_span,
+            "items": items,
+        })
+
+    # 2) relations_section_item (Section → Item)
+    relations_section_item = []
+    for s in sections:
+        for it in s["items"]:
+            relations_section_item.append({
+                "section_key": s["path"][-1],
+                "section_path": s["path"],
+                "surface_path": s["surface_path"],
+                "section_span": s["span"],
+                "item_span": it["span"],
+                "item_text": it["text"],
+            })
+
+    # 3) section_ranges (heading → content range inside sumário)
+    #    Order by heading start; content ends at next heading start (or sumário end)
+    sections_sorted = sorted(sections, key=lambda x: x["span"]["start"])
+    section_ranges = []
+    for i, s in enumerate(sections_sorted):
+        heading_end = s["span"]["end"]
+        next_start = sections_sorted[i + 1]["span"]["start"] if i + 1 < len(sections_sorted) else (offset + sumario_len)
+        section_ranges.append({
+            "section_key": s["path"][-1],
+            "section_path": s["path"],
+            "surface_path": s["surface_path"],
+            "heading_span": s["span"],
+            "content_range": {"start": heading_end, "end": next_start}
+        })
+
+    return sections, relations_section_item, section_ranges
+
+# --- slice-aware ORG collector from spans list ---------------------------
+def _collect_org_hits_from_spans(org_spans, text: str, span_range, source: str):
+    start, end = span_range
+    hits = []
+    for sp in org_spans:
+        if sp.start_char >= start and sp.end_char <= end:
+            surf = text[sp.start_char:sp.end_char]
+            hits.append({
+                "source": source,  # "sumario" or "body"
+                "surface_raw": surf,
+                "span": {"start": sp.start_char, "end": sp.end_char},
+                "canonical_key": canonical_org_key(surf),
+            })
+    return hits
+
+
+
+
+
+
 # -----------------------------------------------------------------------------
 # Build a matcher over ALL aliases (we'll use alias_to_nodes in a line scanner)
 # -----------------------------------------------------------------------------
@@ -406,6 +619,107 @@ def parse(text: str, nlp):
 
     return doc, sections_tree
 
+# --- main entry point you can call --------------------------------------
+def parse_sumario_and_body_bundle(text_raw: str, nlp):
+    """
+    Returns: (payload_dict, sumario_text, body_text, text_raw)
+    The payload contains sumário structure, section→item relations, ORG↔ORG links, diagnostics, and raw slices.
+    """
+    # A) ORG scan over the full text (for split + linking)
+    doc_full = nlp(text_raw)
+    org_spans_full = find_org_spans(doc_full, text_raw)  # existing function
+
+    # B) Split by SECOND-ORG rule (with fallbacks already inside)
+    sum_span, body_span = split_sumario_body(text_raw, org_spans_full)
+    sum_start, sum_end = sum_span
+    body_start, body_end = body_span
+
+    sumario_text = text_raw[sum_start:sum_end]
+    body_text    = text_raw[body_start:body_end]
+
+    # C) Parse ONLY the sumário to build its structure
+    doc_sum, sections_tree = parse(sumario_text, nlp)
+
+    # D) Assemble sections, relations_section_item, section_ranges (spans → full-text coords)
+    sections, rel_section_item, section_ranges = _build_sumario_struct_from_tree(
+        sections_tree, offset=sum_start, sumario_len=len(sumario_text)
+    )
+
+    # E) ORG hits per slice + ORG↔ORG linking
+    sum_orgs  = _collect_org_hits_from_spans(org_spans_full, text_raw, sum_span, source="sumario")
+    body_orgs = _collect_org_hits_from_spans(org_spans_full, text_raw, body_span, source="body")
+    relations, diag = link_orgs(sum_orgs, body_orgs)  # existing helper
+
+    # F) Diagnostics: how split was chosen
+    second_org_pos = _choose_body_start_by_second_org(org_spans_full, text_raw, find_sumario_anchor(text_raw))
+    strategy = "second_org_pair" if (second_org_pos == body_start) else "fallback_first_l1_or_window"
+
+    payload = {
+        "version": "sumario_body_linker@1.0.0",
+        "text_raw": text_raw,
+        "sumario": {
+            "span": {"start": sum_start, "end": sum_end},
+            "text_raw": sumario_text,
+            "sections": sections,
+            "relations_section_item": rel_section_item,
+            "section_ranges": section_ranges,
+        },
+        "body": {
+            "span": {"start": body_start, "end": body_end},
+            "text_raw": body_text,
+        },
+        "relations_org_to_org": relations,
+        "diagnostics": {
+            "strategy": strategy,
+            "split_anchor": {
+                "key": relations[0]["key"],
+                "body_start": body_start
+            } if strategy == "second_org_pair" and relations else None,
+            "unmatched_sumario_orgs": diag.get("unmatched_sumario_orgs", []),
+            "unmatched_body_orgs": diag.get("unmatched_body_orgs", []),
+        },
+    }
+
+    return payload, sumario_text, body_text, text_raw
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # -----------------------------------------------------------------------------
 # Pretty-printer for quick testing
 # -----------------------------------------------------------------------------
@@ -434,6 +748,7 @@ def print_results(doc, sections_tree):
     print("\n=== ALL ENTITY SPANS (debug) ===")
     for ent in doc.ents:
         print(f"{ent.label_:<20} @{ent.start_char:>5}-{ent.end_char:<5} | {repr(ent.text)}")
+
 
 # -----------------------------------------------------------------------------
 # CLI / quick test
@@ -471,7 +786,7 @@ if __name__ == "__main__":
             "Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a Federação\n"
             "dos Sindicatos da Administração Pública - FESAP, o Sindicato dos Trabalhadores da\n"
             "Função Pública da Região Autónoma da Madeira - STFP, RAM e o Sindicato Nacional\n"
-            "dos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT.\n"
+            "dos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT. ......................\n"
             "Organizações do Trabalho:\n"
             "Associações Sindicais:\n"
             "Estatutos:\n"
@@ -480,7 +795,55 @@ if __name__ == "__main__":
             "Alterações:\n"
             "Associação Comercial e Industrial do Funchal - Câmara de Comércio e Indústria da\n"
             "Madeira - Alteração. ..............................................................................................\n"
+
+            "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\n"
+            "DE TRABALHO\n"
         )
 
     doc, sections_tree = parse(_text, nlp)
     print_results(doc, sections_tree)
+
+    doc = nlp(_text)
+    org_full = find_org_spans(doc, _text)                  # existing function
+    doc.ents = tuple(filter_spans(org_full))               # keep only ORG for this flow
+
+    # 2) Split Sumário / Body (layout-free)
+    sum_span, body_span = split_sumario_body(_text, org_full)
+
+    # 3) Collect ORGs per slice (preserving originals + offsets + keys)
+    sum_orgs = collect_org_hits_in_span(doc, _text, sum_span, source="sumario")
+    body_orgs = collect_org_hits_in_span(doc, _text, body_span, source="body")
+
+    # 4) Link them by canonical key
+    relations, diag = link_orgs(sum_orgs, body_orgs)
+
+    # 5) Quick prints
+    print("\n=== SPLIT ===")
+    print(f"Sumário: {sum_span[0]}..{sum_span[1]}  | len={sum_span[1]-sum_span[0]}")
+    print(f"Body   : {body_span[0]}..{body_span[1]} | len={body_span[1]-body_span[0]}")
+
+    print("\n=== ORG → ORG RELATIONS ===")
+    for r in relations:
+        print(f"- {r['key']}")
+        print(f"  sumário: '{r['sumario']['surface_raw']}' @{r['sumario']['span']['start']}..{r['sumario']['span']['end']}")
+        print(f"  body   : '{r['body']['surface_raw']}' @{r['body']['span']['start']}..{r['body']['span']['end']}")
+        print(f"  conf   : {r['confidence']}")
+
+    if diag["unmatched_sumario_orgs"] or diag["unmatched_body_orgs"]:
+        print("\n=== DIAGNOSTICS ===")
+        if diag["unmatched_sumario_orgs"]:
+            print("Unmatched Sumário ORGs:")
+            for h in diag["unmatched_sumario_orgs"]:
+                print(f"  - '{h['surface_raw']}' @{h['span']['start']}..{h['span']['end']} | key={h['canonical_key']}")
+        if diag["unmatched_body_orgs"]:
+            print("Unmatched Body ORGs:")
+            for h in diag["unmatched_body_orgs"]:
+                print(f"  - '{h['surface_raw']}' @{h['span']['start']}..{h['span']['end']} | key={h['canonical_key']}")
+
+    
+# Derive a quick label for how body_start was chosen (debug only)
+    strategy = "second_org_pair" if _choose_body_start_by_second_org(org_full, _text, find_sumario_anchor(_text)) == body_span[0] \
+            else "fallback_first_l1_or_window"
+    print(f"\n=== SPLIT ===  (strategy: {strategy})")
+    print(f"Sumário: {sum_span[0]}..{sum_span[1]}  | len={sum_span[1]-sum_span[0]}")
+    print(f"Body   : {body_span[0]}..{body_span[1]} | len={body_span[1]-body_span[0]}")

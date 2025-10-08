@@ -1,0 +1,311 @@
+{
+  "version": "sumario_body_linker@1.0.0",
+  "text_raw": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\nDE TRABALHO\nAcordo Coletivo n.º 9/2014 - Acordo Coletivo de Entidade Empregadora Pública\ncelebrado entre a Assembleia Legislativa da Madeira, o Sindicato dos Trabalhadores\nda Função Pública da Região Autónoma da Madeira e o Sindicato dos Trabalhadores\nAdministração Pública e de Entidades com Fins Públicos. .........................................\nAcordo Coletivo n.º 10/2014 - Acordo Coletivo de Empregador Público celebrado\nentre a Secretaria dos Assuntos Sociais - SRAS, a Secretaria Regional do Plano e\nFinanças - SRPF, a Vice-Presidência do Governo da Região Autónoma da Madeira -\nVP, o Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a\nFederação dos Sindicatos da Administração Pública - FESAP, o Sindicato dos\nTrabalhadores da Função Pública da Região Autónoma da Madeira - STFP, RAM e\no Sindicato Nacional dos Técncos Superiores de Saúde das Áreas de Diagnóstico e\nTerapêutica - SNTSSDT. ..............................................................................................\nSECRETARIA REGIONAL DA EDUCAÇÃO E RECURSOS HUMANOS\nDireção Regional do Trabalho\nRegulamentação do Trabalho\nDespachos:\n“Capio - Consultoria e Comércio, Lda” - Autorização para Adoção de Período de\nLaboração com Amplitude Superior aos Limites Normais. .........................................\nPortarias de Condições de Trabalho:\nPortarias de Extensão:\nAviso de Projeto de Portaria de Extensão do Acordo de Empresa celebrado entre o\nServiço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a Federação\ndos Sindicatos da Administração Pública - FESAP, o Sindicato dos Trabalhadores da\nFunção Pública da Região Autónoma da Madeira - STFP, RAM e o Sindicato Nacional\ndos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT. ......................\nOrganizações do Trabalho:\nAssociações Sindicais:\nEstatutos:\nSindicato Democrático dos Professores da Madeira - Alteração. ...............................\nAssociações de Empregadores:\nAlterações:\nAssociação Comercial e Industrial do Funchal - Câmara de Comércio e Indústria da\nMadeira - Alteração. ..............................................................................................\nADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\nDE TRABALHO\n",
+  "sumario": {
+    "span": {
+      "start": 0,
+      "end": 2232
+    },
+    "text_raw": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\nDE TRABALHO\nAcordo Coletivo n.º 9/2014 - Acordo Coletivo de Entidade Empregadora Pública\ncelebrado entre a Assembleia Legislativa da Madeira, o Sindicato dos Trabalhadores\nda Função Pública da Região Autónoma da Madeira e o Sindicato dos Trabalhadores\nAdministração Pública e de Entidades com Fins Públicos. .........................................\nAcordo Coletivo n.º 10/2014 - Acordo Coletivo de Empregador Público celebrado\nentre a Secretaria dos Assuntos Sociais - SRAS, a Secretaria Regional do Plano e\nFinanças - SRPF, a Vice-Presidência do Governo da Região Autónoma da Madeira -\nVP, o Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a\nFederação dos Sindicatos da Administração Pública - FESAP, o Sindicato dos\nTrabalhadores da Função Pública da Região Autónoma da Madeira - STFP, RAM e\no Sindicato Nacional dos Técncos Superiores de Saúde das Áreas de Diagnóstico e\nTerapêutica - SNTSSDT. ..............................................................................................\nSECRETARIA REGIONAL DA EDUCAÇÃO E RECURSOS HUMANOS\nDireção Regional do Trabalho\nRegulamentação do Trabalho\nDespachos:\n“Capio - Consultoria e Comércio, Lda” - Autorização para Adoção de Período de\nLaboração com Amplitude Superior aos Limites Normais. .........................................\nPortarias de Condições de Trabalho:\nPortarias de Extensão:\nAviso de Projeto de Portaria de Extensão do Acordo de Empresa celebrado entre o\nServiço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a Federação\ndos Sindicatos da Administração Pública - FESAP, o Sindicato dos Trabalhadores da\nFunção Pública da Região Autónoma da Madeira - STFP, RAM e o Sindicato Nacional\ndos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT. ......................\nOrganizações do Trabalho:\nAssociações Sindicais:\nEstatutos:\nSindicato Democrático dos Professores da Madeira - Alteração. ...............................\nAssociações de Empregadores:\nAlterações:\nAssociação Comercial e Industrial do Funchal - Câmara de Comércio e Indústria da\nMadeira - Alteração. ..............................................................................................\n",
+    "sections": [
+      {
+        "path": [
+          "Despachos"
+        ],
+        "surface_path": [
+          "Despachos:"
+        ],
+        "span": {
+          "start": 1170,
+          "end": 1181
+        },
+        "items": [
+          {
+            "text": "“Capio - Consultoria e Comércio, Lda” - Autorização para Adoção de Período de Laboração com Amplitude Superior aos Limites Normais",
+            "span": {
+              "start": 1181,
+              "end": 1312
+            }
+          }
+        ]
+      },
+      {
+        "path": [
+          "PortariasExtensao"
+        ],
+        "surface_path": [
+          "Portarias de Extensão:"
+        ],
+        "span": {
+          "start": 1391,
+          "end": 1414
+        },
+        "items": [
+          {
+            "text": "Aviso de Projeto de Portaria de Extensão do Acordo de Empresa celebrado entre o Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a Federação dos Sindicatos da Administração Pública - FESAP, o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira - STFP, RAM e o Sindicato Nacional dos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT",
+            "span": {
+              "start": 1414,
+              "end": 1816
+            }
+          }
+        ]
+      },
+      {
+        "path": [
+          "Organizações do Trabalho",
+          "Associações Sindicais",
+          "Estatutos"
+        ],
+        "surface_path": [
+          "Organizações do Trabalho:",
+          "Associações Sindicais:",
+          "Estatutos:"
+        ],
+        "span": {
+          "start": 1889,
+          "end": 1900
+        },
+        "items": [
+          {
+            "text": "Sindicato Democrático dos Professores da Madeira - Alteração",
+            "span": {
+              "start": 1900,
+              "end": 1961
+            }
+          }
+        ]
+      },
+      {
+        "path": [
+          "Organizações do Trabalho",
+          "Associações de Empregadores",
+          "Estatutos"
+        ],
+        "surface_path": [
+          "Organizações do Trabalho:",
+          "Associações de Empregadores:",
+          "Alterações:"
+        ],
+        "span": {
+          "start": 2023,
+          "end": 2035
+        },
+        "items": [
+          {
+            "text": "Associação Comercial e Industrial do Funchal - Câmara de Comércio e Indústria da Madeira - Alteração",
+            "span": {
+              "start": 2035,
+              "end": 2136
+            }
+          }
+        ]
+      }
+    ],
+    "relations_section_item": [
+      {
+        "section_key": "Despachos",
+        "section_path": [
+          "Despachos"
+        ],
+        "surface_path": [
+          "Despachos:"
+        ],
+        "section_span": {
+          "start": 1170,
+          "end": 1181
+        },
+        "item_span": {
+          "start": 1181,
+          "end": 1312
+        },
+        "item_text": "“Capio - Consultoria e Comércio, Lda” - Autorização para Adoção de Período de Laboração com Amplitude Superior aos Limites Normais"
+      },
+      {
+        "section_key": "PortariasExtensao",
+        "section_path": [
+          "PortariasExtensao"
+        ],
+        "surface_path": [
+          "Portarias de Extensão:"
+        ],
+        "section_span": {
+          "start": 1391,
+          "end": 1414
+        },
+        "item_span": {
+          "start": 1414,
+          "end": 1816
+        },
+        "item_text": "Aviso de Projeto de Portaria de Extensão do Acordo de Empresa celebrado entre o Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a Federação dos Sindicatos da Administração Pública - FESAP, o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira - STFP, RAM e o Sindicato Nacional dos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT"
+      },
+      {
+        "section_key": "Estatutos",
+        "section_path": [
+          "Organizações do Trabalho",
+          "Associações Sindicais",
+          "Estatutos"
+        ],
+        "surface_path": [
+          "Organizações do Trabalho:",
+          "Associações Sindicais:",
+          "Estatutos:"
+        ],
+        "section_span": {
+          "start": 1889,
+          "end": 1900
+        },
+        "item_span": {
+          "start": 1900,
+          "end": 1961
+        },
+        "item_text": "Sindicato Democrático dos Professores da Madeira - Alteração"
+      },
+      {
+        "section_key": "Estatutos",
+        "section_path": [
+          "Organizações do Trabalho",
+          "Associações de Empregadores",
+          "Estatutos"
+        ],
+        "surface_path": [
+          "Organizações do Trabalho:",
+          "Associações de Empregadores:",
+          "Alterações:"
+        ],
+        "section_span": {
+          "start": 2023,
+          "end": 2035
+        },
+        "item_span": {
+          "start": 2035,
+          "end": 2136
+        },
+        "item_text": "Associação Comercial e Industrial do Funchal - Câmara de Comércio e Indústria da Madeira - Alteração"
+      }
+    ],
+    "section_ranges": [
+      {
+        "section_key": "Despachos",
+        "section_path": [
+          "Despachos"
+        ],
+        "surface_path": [
+          "Despachos:"
+        ],
+        "heading_span": {
+          "start": 1170,
+          "end": 1181
+        },
+        "content_range": {
+          "start": 1181,
+          "end": 1391
+        }
+      },
+      {
+        "section_key": "PortariasExtensao",
+        "section_path": [
+          "PortariasExtensao"
+        ],
+        "surface_path": [
+          "Portarias de Extensão:"
+        ],
+        "heading_span": {
+          "start": 1391,
+          "end": 1414
+        },
+        "content_range": {
+          "start": 1414,
+          "end": 1889
+        }
+      },
+      {
+        "section_key": "Estatutos",
+        "section_path": [
+          "Organizações do Trabalho",
+          "Associações Sindicais",
+          "Estatutos"
+        ],
+        "surface_path": [
+          "Organizações do Trabalho:",
+          "Associações Sindicais:",
+          "Estatutos:"
+        ],
+        "heading_span": {
+          "start": 1889,
+          "end": 1900
+        },
+        "content_range": {
+          "start": 1900,
+          "end": 2023
+        }
+      },
+      {
+        "section_key": "Estatutos",
+        "section_path": [
+          "Organizações do Trabalho",
+          "Associações de Empregadores",
+          "Estatutos"
+        ],
+        "surface_path": [
+          "Organizações do Trabalho:",
+          "Associações de Empregadores:",
+          "Alterações:"
+        ],
+        "heading_span": {
+          "start": 2023,
+          "end": 2035
+        },
+        "content_range": {
+          "start": 2035,
+          "end": 2232
+        }
+      }
+    ]
+  },
+  "body": {
+    "span": {
+      "start": 2232,
+      "end": 2296
+    },
+    "text_raw": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\nDE TRABALHO\n"
+  },
+  "relations_org_to_org": [
+    {
+      "key": "ADMINISTRACAOPUBLICAREGIONALRELACOESCOLETIVASDETRABALHO",
+      "sumario": {
+        "surface_raw": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\nDE TRABALHO\n",
+        "span": {
+          "start": 0,
+          "end": 64
+        }
+      },
+      "body": {
+        "surface_raw": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\nDE TRABALHO\n",
+        "span": {
+          "start": 2232,
+          "end": 2296
+        }
+      },
+      "confidence": 1.0
+    }
+  ],
+  "diagnostics": {
+    "strategy": "second_org_pair",
+    "split_anchor": {
+      "key": "ADMINISTRACAOPUBLICAREGIONALRELACOESCOLETIVASDETRABALHO",
+      "body_start": 2232
+    },
+    "unmatched_sumario_orgs": [
+      {
+        "source": "sumario",
+        "surface_raw": "SECRETARIA REGIONAL DA EDUCAÇÃO E RECURSOS HUMANOS\n",
+        "span": {
+          "start": 1063,
+          "end": 1114
+        },
+        "canonical_key": "SECRETARIAREGIONALDAEDUCACAOERECURSOSHUMANOS"
+      }
+    ],
+    "unmatched_body_orgs": []
+  }
+}
