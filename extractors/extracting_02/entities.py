@@ -54,15 +54,15 @@ L1_NODES = [
         "Regulamentos de Condições Mínimas",
         "Regulamentos de Condições Mínimas:",
         "Regulamentos de Condicoes Minimas",
-        "Regulamentos de Condicoes Minimas:"
-    ],),
+        "Regulamentos de Condicoes Minimas:",
+    ]),
      Node(
         "RegulamentosExtensao", 1,
         [
             "Regulamentos de Extensão:",
             "Regulamentos de Extensão",
-            "Regulamentos de Extensao:"
-            "Regulamentos de Extensao"
+            "Regulamentos de Extensao:",
+            "Regulamentos de Extensao",
         ]
     )
 ]
@@ -91,6 +91,25 @@ TAXONOMY: List[Node] = L1_NODES + L2_NODES + L3_NODES
 DOT_LEADER_LINE_RE = re.compile(r'^\s*\.{5,}\s*$')   # line that is only dots
 DOT_LEADER_TAIL_RE = re.compile(r'\.{5,}\s*$')       # dots at end of the line
 BLANK_RE = re.compile(r'^\s*$')
+
+ITEM_STARTERS = ("portaria", "aviso", "acordo", "contrato", "cct", "cctv", "regulamento", "despacho")
+
+def _looks_like_item_start(ln: str) -> bool:
+    """Heuristic: line begins a new Sumário item."""
+    raw = ln.strip()
+    if not raw:
+        return False
+    # collapse diacritics and lowercase for keyword checks
+    norm = _strip_diacritics(raw).lower()
+
+    # starts with quote or uppercase letter?
+    starts_itemish = raw[:1] in {'"', "“", "”", "'", "«", "»"} or (raw[:1].isalpha() and raw[:1].upper() == raw[:1])
+
+    # contains " - " fairly early OR starts with a known item starter
+    has_dash_early = " - " in raw[:80]  # dash separator near the beginning
+    starts_with_keyword = any(norm.startswith(k) for k in ITEM_STARTERS)
+
+    return starts_itemish and (has_dash_early or starts_with_keyword)
 
 def _strip_diacritics(s: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
@@ -173,12 +192,6 @@ def find_first_l1_heading_after(text: str, start_pos: int) -> Optional[int]:
 
 
 def split_sumario_body(text: str, org_spans_fulltext: List[Span]) -> Tuple[Tuple[int,int], Tuple[int,int]]:
-    """
-    Return (sumario_span, body_span) as (start,end) into full text.
-
-    Primary: Body starts at the 'second ORG' of the first valid ORG→ORG pair (earliest second occurrence).
-    Fallback: first L1 heading after the Sumário anchor (if any), else after start; last resort: a conservative window.
-    """
     S = find_sumario_anchor(text)  # may be None
 
     # 1) Try the 'second ORG' rule
@@ -186,18 +199,14 @@ def split_sumario_body(text: str, org_spans_fulltext: List[Span]) -> Tuple[Tuple
 
     # 2) Fallbacks
     if body_start is None:
-        # first L1 heading after anchor (or after 0 if no anchor)
-        search_from = S if S is not None else 0
-        body_start = find_first_l1_heading_after(text, search_from)
+        # OLD (problematic): body_start = find_first_l1_heading_after(text, S or 0)
+        # NEW (safe): keep the whole rest as Sumário so headings are included
+        body_start = len(text)
 
-    if body_start is None:
-        # conservative cap (avoid putting entire doc in Sumário)
-        base = S if S is not None else 0
-        body_start = min(len(text), base + 20000)
-
-    # 3) Sumário starts at anchor if present; else from start (unchanged behavior)
+    # 3) Sumário starts at anchor if present; else from start
     sum_start = S if S is not None else 0
     return (sum_start, body_start), (body_start, len(text))
+
 
 
 def collect_org_hits_in_span(doc, text: str, span: Tuple[int,int], source: str) -> List[dict]:
@@ -447,24 +456,95 @@ def find_org_spans(doc, text: str) -> List[Span]:
             i += 1
     return org_spans
 
+def find_item_char_spans(full_text: str, start_char: int, end_char: int, next_heading_starts: set):
+    """Yield (start_char, end_char) for items within [start_char, end_char).
+       Item ends when:
+         1) line is only dot leaders,
+         2) line ends with dot leaders (.....),
+         2b) line ends with a single period AND the next non-blank line looks like a new item,
+         3) next line begins a heading (fallback).
+    """
+    segment = full_text[start_char:end_char]
+    seg_lines = segment.splitlines(keepends=True)
+
+    # absolute offsets for each line
+    offs = []
+    p = start_char
+    for ln in seg_lines:
+        offs.append(p)
+        p += len(ln)
+
+    block_start = 0
+    for i, ln in enumerate(seg_lines):
+        # Case 1: pure dots line → close previous block
+        if DOT_LEADER_LINE_RE.match(ln):
+            s = block_start
+            e = i
+            while s < e and BLANK_RE.match(seg_lines[s]): s += 1
+            j = e - 1
+            while j >= s and BLANK_RE.match(seg_lines[j]): j -= 1
+            if j >= s:
+                yield offs[s], offs[j] + len(seg_lines[j])
+            block_start = i + 1
+            continue
+
+        # Case 2: trailing dot leaders on the same line
+        m = DOT_LEADER_TAIL_RE.search(ln)
+        if m:
+            s = block_start
+            while s <= i and BLANK_RE.match(seg_lines[s]): s += 1
+            if s <= i:
+                end_char_abs = offs[i] + m.start()
+                yield offs[s], end_char_abs
+            block_start = i + 1
+            continue
+
+        # Case 2b: single-period end IF next non-blank looks like a new item
+        # guard with min length to avoid splitting abbreviations
+        if re.search(r'\.\s*$', ln) and len(ln.strip()) >= 40:
+            k = i + 1
+            while k < len(seg_lines) and BLANK_RE.match(seg_lines[k]):
+                k += 1
+            if k < len(seg_lines) and _looks_like_item_start(seg_lines[k]):
+                s = block_start
+                while s <= i and BLANK_RE.match(seg_lines[s]): s += 1
+                if s <= i:
+                    # include the final period of current line
+                    end_char_abs = offs[i] + len(seg_lines[i].rstrip("\n"))
+                    yield offs[s], end_char_abs
+                block_start = i + 1
+                continue
+
+        # Case 3: fallback — if next line starts a heading, close before it
+        next_line_start = offs[i + 1] if i + 1 < len(seg_lines) else None
+        if next_line_start is not None and next_line_start in next_heading_starts:
+            s = block_start
+            e = i
+            while s < e and BLANK_RE.match(seg_lines[s]): s += 1
+            j = e
+            while j >= s and BLANK_RE.match(seg_lines[j]): j -= 1
+            if j >= s:
+                yield offs[s], offs[j] + len(seg_lines[j])
+            block_start = i + 1
+
 # -----------------------------------------------------------------------------
 # Parse: builds hierarchy with stack + items; returns (doc, sections_tree)
 # -----------------------------------------------------------------------------
 def parse(text: str, nlp):
     """
     Returns:
-      doc               : spaCy Doc with entities (ORG, section leaf spans, items)
-      sections_tree     : list of dicts with {path, surface, span, items}
+      doc           : spaCy Doc with entities (ORG, section leaf spans, items)
+      sections_tree : list of dicts with {path, surface, span, items}
     """
     doc = nlp(text)
     _, alias_to_nodes = build_heading_matcher(nlp)
 
-    # 1) find all heading line hits (may include ambiguous aliases)
+    # 1) Find all heading line hits (may include ambiguous aliases)
     hits = scan_headings(text, alias_to_nodes)
     hits.sort(key=lambda h: h.start_char)
 
-    # 2) resolve ambiguity contextually using a stack (parents)
-    stack: List[Tuple[str, int, int, int, str]] = []
+    # 2) Resolve ambiguity contextually using a stack (parents)
+    stack: List[Tuple[str, int, int, int, str]] = []   # (canonical, level, start, end, surface)
     leaves: List[Dict] = []
     leaf_seen = set()  # (leaf_heading_start, leaf_heading_end, tuple(path))
 
@@ -473,19 +553,19 @@ def parse(text: str, nlp):
         if not stack:
             return
         leaf = stack[-1]
-        leaf_path = [s[0] for s in stack]              # canonicals
-        leaf_surfaces = [s[4] for s in stack]          # surfaces including colon
-        leaf_heading_start = leaf[2]
-        leaf_heading_end = leaf[3]
-        text_start = leaf_heading_end
-        text_end = next_start
-        key = (leaf_heading_start, leaf_heading_end, tuple(leaf_path))
+        leaf_path = [s[0] for s in stack]     # canonicals
+        leaf_surfs = [s[4] for s in stack]    # surfaces (with ':')
+        leaf_start = leaf[2]
+        leaf_end   = leaf[3]
+        text_start = leaf_end
+        text_end   = next_start
+        key = (leaf_start, leaf_end, tuple(leaf_path))
         if text_start < text_end and key not in leaf_seen:
             leaf_seen.add(key)
             leaves.append({
                 "path": leaf_path[:],
-                "surface": leaf_surfaces[:],
-                "span": {"start": leaf_heading_start, "end": leaf_heading_end},
+                "surface": leaf_surfs[:],
+                "span": {"start": leaf_start, "end": leaf_end},
                 "text_range": (text_start, text_end),
             })
 
@@ -508,7 +588,10 @@ def parse(text: str, nlp):
                 chosen = node
                 break
         if chosen is None:
-            chosen = next((n for n in candidates if n.parents is None), candidates[0])
+            chosen = next((n for n in candidates if n.parents is None), candidates[0] if candidates else None)
+            if chosen is None:
+                i += 1
+                continue
 
         # close current leaf up to this heading start
         close_leaf_if_any(hit.start_char)
@@ -530,85 +613,33 @@ def parse(text: str, nlp):
     heading_leaf_spans: List[Span] = []
     for leaf in leaves:
         start = leaf["span"]["start"]
-        end = leaf["span"]["end"]
-        chspan = doc.char_span(start, end, alignment_mode="expand")
-        if chspan is None:
+        end   = leaf["span"]["end"]
+        ch = doc.char_span(start, end, alignment_mode="expand")
+        if ch is None:
             continue
         label = leaf["path"][-1]  # canonical leaf label
-        heading_leaf_spans.append(Span(doc, chspan.start, chspan.end, label=label))
+        heading_leaf_spans.append(Span(doc, ch.start, ch.end, label=label))
 
-    # 4) Extract items inside each leaf’s text_range with 3-tier rule
-    def find_item_char_spans(full_text: str, start_char: int, end_char: int, next_heading_starts: set):
-        """Yield (start_char, end_char) for items that end with:
-           - dots-only line,
-           - trailing dot leaders,
-           - or just before the next heading (fallback)."""
-        segment = full_text[start_char:end_char]
-        seg_lines = segment.splitlines(keepends=True)
-
-        offs = []
-        p = start_char
-        for ln in seg_lines:
-            offs.append(p)
-            p += len(ln)
-
-        block_start = 0
-        for i, ln in enumerate(seg_lines):
-            # Case 1: pure dots line → close previous block
-            if DOT_LEADER_LINE_RE.match(ln):
-                s = block_start
-                e = i
-                while s < e and BLANK_RE.match(seg_lines[s]): s += 1
-                j = e - 1
-                while j >= s and BLANK_RE.match(seg_lines[j]): j -= 1
-                if j >= s:
-                    yield offs[s], offs[j] + len(seg_lines[j])
-                block_start = i + 1
-                continue
-
-            # Case 2: trailing dots on the same line
-            m = DOT_LEADER_TAIL_RE.search(ln)
-            if m:
-                s = block_start
-                while s <= i and BLANK_RE.match(seg_lines[s]): s += 1
-                if s <= i:
-                    end_char_abs = offs[i] + m.start()
-                    yield offs[s], end_char_abs
-                block_start = i + 1
-                continue
-
-            # Case 3: fallback — if next line starts a heading, close before it
-            next_line_start = offs[i + 1] if i + 1 < len(seg_lines) else None
-            if next_line_start is not None and next_line_start in next_heading_starts:
-                s = block_start
-                e = i
-                while s < e and BLANK_RE.match(seg_lines[s]): s += 1
-                j = e
-                while j >= s and BLANK_RE.match(seg_lines[j]): j -= 1
-                if j >= s:
-                    yield offs[s], offs[j] + len(seg_lines[j])
-                block_start = i + 1
-
-    # Precompute the set of all heading starts for fallback close
-    heading_starts = {leaf["span"]["start"] for leaf in leaves}
+    # 4) Extract items inside each leaf’s text_range (dot leaders / single '.' / next heading)
+    heading_starts = {l["span"]["start"] for l in leaves}
 
     item_spans: List[Span] = []
     for leaf in leaves:
         sc, ec = leaf["text_range"]
         for s_char, e_char in find_item_char_spans(text, sc, ec, heading_starts):
-            chspan = doc.char_span(s_char, e_char, alignment_mode="expand")
-            if chspan is None:
+            ch = doc.char_span(s_char, e_char, alignment_mode="expand")
+            if ch is None:
                 continue
-            item_spans.append(Span(doc, chspan.start, chspan.end, label=f"Item{leaf['path'][-1]}"))
+            item_spans.append(Span(doc, ch.start, ch.end, label=f"Item{leaf['path'][-1]}"))
 
     # 5) Finalize doc.ents without overlaps or duplicates
     all_spans = org_spans + heading_leaf_spans + item_spans
-    all_spans = _dedup_spans(all_spans)          # remove exact duplicates first
-    all_spans = filter_spans(all_spans)          # resolve overlaps
-    doc.ents = tuple(_dedup_spans(all_spans))    # defensive dedup
+    all_spans = _dedup_spans(all_spans)   # remove exact duplicates first
+    all_spans = filter_spans(all_spans)   # resolve overlaps
+    doc.ents = tuple(_dedup_spans(all_spans))
 
     # 6) Build a clean sections_tree with items (dedup items per leaf)
-    sections_tree = []
+    sections_tree: List[Dict] = []
     items_per_leaf: Dict[int, List[Dict]] = defaultdict(list)
     seen_item_spans_per_leaf: Dict[int, set] = defaultdict(set)
 
@@ -616,7 +647,7 @@ def parse(text: str, nlp):
         sc, ec = leaf["text_range"]
         lid = id(leaf)
         for sp in doc.ents:
-            if sp.label_.startswith("Item") and sp.start_char >= sc and sp.end_char <= ec:
+            if sp.label_.startswith("Item") and sc <= sp.start_char and sp.end_char <= ec:
                 key = (sp.start_char, sp.end_char)
                 if key in seen_item_spans_per_leaf[lid]:
                     continue
@@ -635,6 +666,7 @@ def parse(text: str, nlp):
         })
 
     return doc, sections_tree
+
 
 # --- main entry point you can call --------------------------------------
 def parse_sumario_and_body_bundle(text_raw: str, nlp):
@@ -775,7 +807,7 @@ if __name__ == "__main__":
         with open(sys.argv[1], "r", encoding="utf-8") as f:
             _text = f.read()
     else:
-        _text = (
+        _text= (
             """
 SECRETARIAREGIONAL DOS RECURSOS HUMANOS
 Direcção Regional do Trabalho
@@ -838,50 +870,123 @@ SECRETARIAREGIONAL DOS RECURSOS HUMANOS
 """
         )
 
-    doc, sections_tree = parse(_text, nlp)
-    print_results(doc, sections_tree)
+        _text_01 = ("""
+SECRETARIAREGIONAL DOS RECURSOS HUMANOS
+Direcção Regional do Trabalho
+Regulamentação do Trabalho
+Despachos:
+“EPOS - Empresa Portuguesa de Obras Subterrâneas, Ld.ª" - Autorização para
+Adopção de Período de Laboração com Amplitude Superior aos Limites Normais.
+"ZAGOPE - Construções e Engenharia, S.A." - Autorização para Adopção de Período
+de Laboração com Amplitude Superior aos Limites Normais.
+Regulamentos de Extensão:
+Portaria n.º 6/RE/2008 - Aprova o Regulamento de Extensão do CCTV entre a
+ASSICOM - Associação da Indústria, Associação da Construção da Região Autónoma
+da Madeira e o SICOMA - Sindicato dos Trabalhadores da Construção, Madeiras,
+Olarias e Afins da Região Autónoma da Madeira e Outros - Revisão Salarial e Outra.
+Portaria n.º 7/RE/2008 - Aprova o Regulamento de Extensão do CCTentre a ACIF
+- Associação Comercial e Industrial do Funchal, a ETP/RAM - Associação Portuária
+da Madeira - Empresa de Trabalho Portuário, o Sindicato dos Trabalhadores Portuários
+da Região Autónoma da Madeira e o Sindicato dos Estivadores Marítimos do
+Arquipélago da Madeira - Revisão Salarial e Outras.
+Portaria n.º 8/RE/2008 - Aprova o Regulamento de Extensão do CCT entre a ANIL
+- Associação Nacional dos Industriais de Lacticínios e Várias Cooperativas de
+Produtores de Leite e o Sindicato dos Profissionais de Lacticínios, Alimentação,
+Agricultura, Escritórios, Comércio, Serviços, Transportes Rodoviários,
+Metalomecânica, Metalurgia, Construção Civil e Madeiras - Revisão Global.
+Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do Contrato
+Colectivo de Trabalho entre a Associação dos Industriais e Exportadores de Bordados
+e Tapeçarias da Madeira e o Sindicato dos Trabalhadores da Indústria de Bordados,
+Tapeçarias, Têxteis e Artesanato da Região Autónoma da Madeira - Para o Sector da
+Indústria de Bordados e Tapeçarias da Madeira - Revisão da Tabela Salarial e Outras. 
+Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCTentre a
+AES - Associação das Empresas de Segurança e Outra e o STAD - Sindicato dos
+Trabalhadores de Serviços de Portaria, Vigilância, Limpeza, Domésticas e Actividades
+Diversas e Outros - Alteração Salarial e Outras e Texto Consolidado.
+Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a
+APEB - Associação Portuguesa das Empresas de Betão Pronto e a FETESE - Federação
+dos Sindicatos dos Trabalhadores de Serviços e Outros - Revisão Global.
+Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a
+Liga Portuguesa de Futebol Profissional e a FEPCES - Federação Portuguesa dos
+Sindicatos do Comércio, Escritórios e Serviços e Outros - Revisão Global.
+Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a
+APAT - Associação dos Transitários de Portugal e o SIMAMEVIP - Sindicato dos
+Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca -
+Alteração Salarial e Outras.
+Contrato Colectivo de Trabalho entre a Associação dos Industriais e Exportadores de
+Bordados e Tapeçarias da Madeira e o Sindicato dos Trabalhadores da Indústria de
+Bordados, Tapeçarias, Têxteis e Artesanato da Região Autónoma da Madeira - Para o
+Sector da Indústria de Bordados e Tapeçarias da Madeira - Revisão da Tabela Salarial
+e Outras. 
+CCT entre a AES - Associação das Empresas de Segurança e outra e o STAD -
+Sindicato dos Trabalhadores de Serviços de Portaria, Vigilância, Limpeza, Domésticas
+e Actividades Diversas e Outros - Alteração Salarial e Outras e Texto consolidado.
+CCTentre a APEB - Associação Portuguesa das Empresas de Betão Pronto e a FETESE
+- Federação dos Sindicatos dos Trabalhadores de Serviços e Outros - Revisão Global.
+CCT entre a Liga Portuguesa de Futebol Profissional e a FEPCES - Federação
+Portuguesa dos Sindicatos do Comércio, Escritórios e Serviços e Outros - Revisão
+Global.
+CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP -
+Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e
+Pesca - Alteração Salarial e Outras.
 
-    doc = nlp(_text)
-    org_full = find_org_spans(doc, _text)                  # existing function
-    doc.ents = tuple(filter_spans(org_full))               # keep only ORG for this flow
 
-    # 2) Split Sumário / Body (layout-free)
-    sum_span, body_span = split_sumario_body(_text, org_full)
 
-    # 3) Collect ORGs per slice (preserving originals + offsets + keys)
-    sum_orgs = collect_org_hits_in_span(doc, _text, sum_span, source="sumario")
-    body_orgs = collect_org_hits_in_span(doc, _text, body_span, source="body")
+""")
+    # --- Run pipeline on the first sample ---
+    payload, sumario_text, body_text, full_text = parse_sumario_and_body_bundle(_text_01, nlp)
 
-    # 4) Link them by canonical key
-    relations, diag = link_orgs(sum_orgs, body_orgs)
-
-    # 5) Quick prints
+    sum_span = payload["sumario"]["span"]
+    body_span = payload["body"]["span"]
     print("\n=== SPLIT ===")
-    print(f"Sumário: {sum_span[0]}..{sum_span[1]}  | len={sum_span[1]-sum_span[0]}")
-    print(f"Body   : {body_span[0]}..{body_span[1]} | len={body_span[1]-body_span[0]}")
+    print(f"Sumário: {sum_span['start']}..{sum_span['end']} | len={sum_span['end']-sum_span['start']}")
+    print(f"Body   : {body_span['start']}..{body_span['end']} | len={body_span['end']-body_span['start']}")
+    print(f"Strategy: {payload['diagnostics']['strategy']}")
 
+    # Sections & items
+    print("\n=== SUMÁRIO SECTIONS ===")
+    for s in payload["sumario"]["sections"]:
+        path = " > ".join(s["path"])
+        print(f"- {path}  @ {s['span']['start']}..{s['span']['end']}")
+        for it in s["items"]:
+            print(f"    • {it['text']}  @ {it['span']['start']}..{it['span']['end']}")
+
+    # Section → Item relations
+    print("\n=== SUMÁRIO RELATIONS (Section → Item) ===")
+    for r in payload["sumario"]["relations_section_item"]:
+        print(f"{' > '.join(r['section_path'])}  ::  {r['item_text']}")
+
+    # Section ranges (useful for downstream segmentation)
+    print("\n=== SUMÁRIO SECTION RANGES ===")
+    for sr in payload["sumario"]["section_ranges"]:
+        print(f"{' > '.join(sr['section_path'])}  ::  content {sr['content_range']['start']}..{sr['content_range']['end']}")
+
+    # ORG → ORG relations
     print("\n=== ORG → ORG RELATIONS ===")
-    for r in relations:
+    for r in payload["relations_org_to_org"]:
         print(f"- {r['key']}")
         print(f"  sumário: '{r['sumario']['surface_raw']}' @{r['sumario']['span']['start']}..{r['sumario']['span']['end']}")
         print(f"  body   : '{r['body']['surface_raw']}' @{r['body']['span']['start']}..{r['body']['span']['end']}")
         print(f"  conf   : {r['confidence']}")
 
-    if diag["unmatched_sumario_orgs"] or diag["unmatched_body_orgs"]:
+    # Diagnostics
+    diag = payload["diagnostics"]
+    if diag.get("split_anchor") or diag.get("unmatched_sumario_orgs") or diag.get("unmatched_body_orgs"):
         print("\n=== DIAGNOSTICS ===")
-        if diag["unmatched_sumario_orgs"]:
+        if diag.get("split_anchor"):
+            print(f"Split anchor: {diag['split_anchor']}")
+        if diag.get("unmatched_sumario_orgs"):
             print("Unmatched Sumário ORGs:")
             for h in diag["unmatched_sumario_orgs"]:
                 print(f"  - '{h['surface_raw']}' @{h['span']['start']}..{h['span']['end']} | key={h['canonical_key']}")
-        if diag["unmatched_body_orgs"]:
+        if diag.get("unmatched_body_orgs"):
             print("Unmatched Body ORGs:")
             for h in diag["unmatched_body_orgs"]:
                 print(f"  - '{h['surface_raw']}' @{h['span']['start']}..{h['span']['end']} | key={h['canonical_key']}")
 
-    
-# Derive a quick label for how body_start was chosen (debug only)
-    strategy = "second_org_pair" if _choose_body_start_by_second_org(org_full, _text, find_sumario_anchor(_text)) == body_span[0] \
-            else "fallback_first_l1_or_window"
-    print(f"\n=== SPLIT ===  (strategy: {strategy})")
-    print(f"Sumário: {sum_span[0]}..{sum_span[1]}  | len={sum_span[1]-sum_span[0]}")
-    print(f"Body   : {body_span[0]}..{body_span[1]} | len={body_span[1]-body_span[0]}")
+    # Optional: also run the pipeline on _text_01
+    payload2, _, _, _ = parse_sumario_and_body_bundle(_text_01, nlp)
+    print("\n=== SECOND SAMPLE (quick check) ===")
+    print(f"Strategy: {payload2['diagnostics']['strategy']}, "
+          f"Sumário len={payload2['sumario']['span']['end']-payload2['sumario']['span']['start']}, "
+          f"Body len={payload2['body']['span']['end']-payload2['body']['span']['start']}")
