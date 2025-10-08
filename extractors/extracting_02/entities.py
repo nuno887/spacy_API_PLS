@@ -95,24 +95,78 @@ BLANK_RE = re.compile(r'^\s*$')
 ITEM_STARTERS = ("portaria", "aviso", "acordo", "contrato", "cct", "cctv", "regulamento", "despacho")
 
 def _looks_like_item_start(ln: str) -> bool:
-    """Heuristic: line begins a new Sumário item."""
-    raw = ln.strip()
+    raw = normalize_text_offsetsafe(ln).strip()
     if not raw:
         return False
-    # collapse diacritics and lowercase for keyword checks
     norm = _strip_diacritics(raw).lower()
-
-    # starts with quote or uppercase letter?
-    starts_itemish = raw[:1] in {'"', "“", "”", "'", "«", "»"} or (raw[:1].isalpha() and raw[:1].upper() == raw[:1])
-
-    # contains " - " fairly early OR starts with a known item starter
-    has_dash_early = " - " in raw[:80]  # dash separator near the beginning
+    starts_itemish = raw[:1] in {'"', "'"} or (raw[:1].isalpha() and raw[:1].upper() == raw[:1])
+    has_dash_early = " - " in raw[:80]
     starts_with_keyword = any(norm.startswith(k) for k in ITEM_STARTERS)
-
     return starts_itemish and (has_dash_early or starts_with_keyword)
+
+def _truncate_item_before_inline_org(raw: str) -> str:
+    s = normalize_text_offsetsafe(raw)
+    for m in re.finditer(r'\.(?:[ \t]+)', s):
+        tail = s[m.end():].lstrip(' "\'\u201c\u201d\u00ab\u00bb')
+        if _looks_like_inline_org_start(tail):
+            return s[:m.start()+1].rstrip()
+    return s
+
 
 def _strip_diacritics(s: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
+
+def normalize_text_offsetsafe(s: str) -> str:
+    # 1:1 char replacements only (keeps offsets aligned)
+    return (
+        s.replace("\u00A0", " ")   # NBSP -> space
+         .replace("“", "\"").replace("”", "\"")
+         .replace("’", "'").replace("‘", "'")
+         .replace("«", "\"").replace("»", "\"")
+    )
+
+
+# --- NEW: detect if text after ". " looks like an inline ORG header start ---
+def _looks_like_inline_org_start(snippet: str) -> bool:
+    s = normalize_text_offsetsafe(snippet).lstrip(' "\'\u201c\u201d\u00ab\u00bb')[:80]
+    letters = [ch for ch in s[:40] if ch.isalpha()]
+    if not letters:
+        return False
+    upper_ratio = sum(ch.isupper() for ch in letters) / len(letters)
+    if upper_ratio < 0.75:
+        return False
+    letters_only = re.sub(r'[^A-Za-zÁÂÃÀÄÅáâãàäåÉÊÈËéêèëÍÎÌÏíîìïÓÔÕÒÖóôõòöÚÛÙÜúûùüÇç]', '', s)
+    norm = _strip_diacritics(letters_only).upper()
+    starters_norm = [_strip_diacritics(x).upper() for x in HEADER_STARTERS]
+    return any(norm.startswith(st) for st in starters_norm)
+
+
+# ---inline item boundary finder (same-line splits after ". ") ---
+def _find_inline_item_boundaries(item_text: str, abs_start_char: int) -> List[int]:
+    """
+    Return absolute positions (in full text) where we split an item inline.
+    Split right AFTER a period if it’s followed by spaces (ASCII/NBSP) and
+    the next clause looks like a new Sumário item or an inline ORG header.
+    """
+    boundaries: List[int] = []
+    s = item_text
+
+    # find "." followed by one or more spaces (ASCII space, tab, or NBSP)
+    for m in re.finditer(r'\.(?:[ \t\u00A0]+)', s):
+        j = m.start()           # index of '.'
+        right = s[m.end():]     # text after the spaces
+        # cheap trim of leading quotes/spaces before checks
+        tail = right.lstrip(' "\'\u201c\u201d\u00ab\u00bb')
+
+        # split if next clause looks like a new item or an inline ORG header
+        if _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
+            boundaries.append(abs_start_char + j + 1)  # cut AFTER the '.'
+
+    return boundaries
+
+
+
+
 
 def _normalize_heading_text(s: str) -> str:
     # lower, strip diacritics, remove trailing colon/spaces, compress spaces
@@ -147,10 +201,12 @@ def _starts_with_starter(ln: str) -> bool:
     return first.upper() in HEADER_STARTERS
 
 def clean_item_text(raw: str) -> str:
+    raw = _truncate_item_before_inline_org(raw) 
     raw = raw.replace("-\n", "").replace("­\n", "")
     raw = re.sub(r'\s*\n\s*', ' ', raw).strip()
     raw = re.sub(r'\.*\s*$', '', raw).strip()
     return raw
+
 
 def _dedup_spans(spans: List[Span]) -> List[Span]:
     seen = set()
@@ -458,16 +514,18 @@ def find_org_spans(doc, text: str) -> List[Span]:
 
 def find_item_char_spans(full_text: str, start_char: int, end_char: int, next_heading_starts: set):
     """Yield (start_char, end_char) for items within [start_char, end_char).
-       Item ends when:
-         1) line is only dot leaders,
-         2) line ends with dot leaders (.....),
-         2b) line ends with a single period AND the next non-blank line looks like a new item,
-         3) next line begins a heading (fallback).
+       An item ends when:
+         1) the line is only dot leaders,
+         2) the line ends with dot leaders (.....),
+         2b) the line ends with a single period AND the next non-blank line looks like a new item,
+         3) the next line begins a recognized heading (fallback),
+         3b) the next line is an ORG header (ALL-CAPS + starter).
+       Also emits a final flush if the segment ends with an open block.
     """
     segment = full_text[start_char:end_char]
     seg_lines = segment.splitlines(keepends=True)
 
-    # absolute offsets for each line
+    # absolute offsets for each line in the segment
     offs = []
     p = start_char
     for ln in seg_lines:
@@ -500,7 +558,6 @@ def find_item_char_spans(full_text: str, start_char: int, end_char: int, next_he
             continue
 
         # Case 2b: single-period end IF next non-blank looks like a new item
-        # guard with min length to avoid splitting abbreviations
         if re.search(r'\.\s*$', ln) and len(ln.strip()) >= 40:
             k = i + 1
             while k < len(seg_lines) and BLANK_RE.match(seg_lines[k]):
@@ -509,13 +566,12 @@ def find_item_char_spans(full_text: str, start_char: int, end_char: int, next_he
                 s = block_start
                 while s <= i and BLANK_RE.match(seg_lines[s]): s += 1
                 if s <= i:
-                    # include the final period of current line
                     end_char_abs = offs[i] + len(seg_lines[i].rstrip("\n"))
                     yield offs[s], end_char_abs
                 block_start = i + 1
                 continue
 
-        # Case 3: fallback — if next line starts a heading, close before it
+        # Case 3: fallback — if next line starts a recognized heading, close before it
         next_line_start = offs[i + 1] if i + 1 < len(seg_lines) else None
         if next_line_start is not None and next_line_start in next_heading_starts:
             s = block_start
@@ -526,17 +582,33 @@ def find_item_char_spans(full_text: str, start_char: int, end_char: int, next_he
             if j >= s:
                 yield offs[s], offs[j] + len(seg_lines[j])
             block_start = i + 1
-            # --- FINAL FLUSH: if there's an open block at the end of the segment, emit it
+            continue
+
+        # Case 3b: if the *next physical line* is an ORG header (ALL-CAPS + starter), close before it
+        if i + 1 < len(seg_lines):
+            nxt = seg_lines[i + 1]
+            if _starts_with_starter(nxt) and _is_all_caps_line(nxt):
+                s = block_start
+                e = i
+                while s < e and BLANK_RE.match(seg_lines[s]): s += 1
+                j = e
+                while j >= s and BLANK_RE.match(seg_lines[j]): j -= 1
+                if j >= s:
+                    yield offs[s], offs[j] + len(seg_lines[j])
+                block_start = i + 1
+                continue
+
+    # Final flush: emit any open block up to the end of the segment
     if block_start < len(seg_lines):
         s = block_start
         e = len(seg_lines) - 1
-        # skip leading/trailing blanks inside the remaining block
         while s <= e and BLANK_RE.match(seg_lines[s]):
             s += 1
         while e >= s and BLANK_RE.match(seg_lines[e]):
             e -= 1
         if s <= e:
             yield offs[s], offs[e] + len(seg_lines[e])
+
 
 
 # -----------------------------------------------------------------------------
@@ -644,6 +716,27 @@ def parse(text: str, nlp):
                 continue
             item_spans.append(Span(doc, ch.start, ch.end, label=f"Item{leaf['path'][-1]}"))
 
+    # 4b) Refine item spans with inline splits (e.g., "... Outras. Contrato ...")
+    refined_item_spans: List[Span] = []
+    for it_sp in item_spans:
+        raw = text[it_sp.start_char:it_sp.end_char]
+        splits = _find_inline_item_boundaries(raw, it_sp.start_char)
+        if not splits:
+            refined_item_spans.append(it_sp)
+            continue
+
+        prev = it_sp.start_char
+        for cut in splits:
+            ch = doc.char_span(prev, cut, alignment_mode="expand")
+            if ch is not None:
+                refined_item_spans.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
+            prev = cut + 1  # right after '.'
+        ch = doc.char_span(prev, it_sp.end_char, alignment_mode="expand")
+        if ch is not None:
+            refined_item_spans.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
+
+    item_spans = refined_item_spans
+
     # 5) Finalize doc.ents without overlaps or duplicates
     all_spans = org_spans + heading_leaf_spans + item_spans
     all_spans = _dedup_spans(all_spans)   # remove exact duplicates first
@@ -678,6 +771,7 @@ def parse(text: str, nlp):
         })
 
     return doc, sections_tree
+
 
 
 # --- main entry point you can call --------------------------------------
