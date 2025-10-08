@@ -48,6 +48,23 @@ L1_NODES = [
                             "Convencoes Coletivas de Trabalho:", "Convenções Colectivas de Trabalho:"]),
     Node("Organizações do Trabalho", 1, ["Organizações do Trabalho", "Organizacoes do Trabalho",
                                          "Organizações do Trabalho:", "Organizacoes do Trabalho:"]),
+    Node(
+    "RegulamentosCondicoesMinimas", 1,
+    [
+        "Regulamentos de Condições Mínimas",
+        "Regulamentos de Condições Mínimas:",
+        "Regulamentos de Condicoes Minimas",
+        "Regulamentos de Condicoes Minimas:"
+    ],),
+     Node(
+        "RegulamentosExtensao", 1,
+        [
+            "Regulamentos de Extensão:",
+            "Regulamentos de Extensão",
+            "Regulamentos de Extensao:"
+            "Regulamentos de Extensao"
+        ]
+    )
 ]
 
 # L2 under "Organizações do Trabalho"
@@ -759,45 +776,66 @@ if __name__ == "__main__":
             _text = f.read()
     else:
         _text = (
-            # Sample combining your earlier and newer examples
-            "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\n"
-            "DE TRABALHO\n"
-            "Acordo Coletivo n.º 9/2014 - Acordo Coletivo de Entidade Empregadora Pública\n"
-            "celebrado entre a Assembleia Legislativa da Madeira, o Sindicato dos Trabalhadores\n"
-            "da Função Pública da Região Autónoma da Madeira e o Sindicato dos Trabalhadores\n"
-            "Administração Pública e de Entidades com Fins Públicos. .........................................\n"
-            "Acordo Coletivo n.º 10/2014 - Acordo Coletivo de Empregador Público celebrado\n"
-            "entre a Secretaria dos Assuntos Sociais - SRAS, a Secretaria Regional do Plano e\n"
-            "Finanças - SRPF, a Vice-Presidência do Governo da Região Autónoma da Madeira -\n"
-            "VP, o Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a\n"
-            "Federação dos Sindicatos da Administração Pública - FESAP, o Sindicato dos\n"
-            "Trabalhadores da Função Pública da Região Autónoma da Madeira - STFP, RAM e\n"
-            "o Sindicato Nacional dos Técncos Superiores de Saúde das Áreas de Diagnóstico e\n"
-            "Terapêutica - SNTSSDT. ..............................................................................................\n"
-            "SECRETARIA REGIONAL DA EDUCAÇÃO E RECURSOS HUMANOS\n"
-            "Direção Regional do Trabalho\n"
-            "Regulamentação do Trabalho\n"
-            "Despachos:\n"
-            "“Capio - Consultoria e Comércio, Lda” - Autorização para Adoção de Período de\n"
-            "Laboração com Amplitude Superior aos Limites Normais. .........................................\n"
-            "Portarias de Condições de Trabalho:\n"
-            "Portarias de Extensão:\n"
-            "Aviso de Projeto de Portaria de Extensão do Acordo de Empresa celebrado entre o\n"
-            "Serviço de Saúde da Região Autónoma da Madeira, E.P.E. - SESARAM, a Federação\n"
-            "dos Sindicatos da Administração Pública - FESAP, o Sindicato dos Trabalhadores da\n"
-            "Função Pública da Região Autónoma da Madeira - STFP, RAM e o Sindicato Nacional\n"
-            "dos Técnicos Superiores de Saúde das Áreas de Diagnóstico e Terapêutica - SNTSSDT. ......................\n"
-            "Organizações do Trabalho:\n"
-            "Associações Sindicais:\n"
-            "Estatutos:\n"
-            "Sindicato Democrático dos Professores da Madeira - Alteração. ...............................\n"
-            "Associações de Empregadores:\n"
-            "Alterações:\n"
-            "Associação Comercial e Industrial do Funchal - Câmara de Comércio e Indústria da\n"
-            "Madeira - Alteração. ..............................................................................................\n"
+            """
+SECRETARIAREGIONAL DOS RECURSOS HUMANOS
+Direcção Regional do Trabalho
+Regulamentação do Trabalho
+Despachos:
+"Teixeira Duarte - Engenharia e Construções, S.A.", - Autorização para adopção de 
+período de laboração com amplitude superior aos limites normais..................................
+Regulamentos de Condições Mínimas:
+Portaria que Aprova o Regulamento de Condições Mínimas para o sector da Indústria
+Hoteleira da Região Autónoma da Madeira.....................................................................
+Regulamentos de Extensão:
+Portaria n.º 22/RE/2008 - Aprova o Regulamento de Extensão do CCT entre a ANF -
+Associação Nacional das Farmácias e o SINPROFARM - Sindicato Nacional dos
+Profissionais de Farmácia - Alteração Salarial e Outras.................................................
+Portaria n.º 23/RE/2008 - Aprova o Regulamento de Extensão do ACTentre a Empresa
+de Navegação Madeirense, Ld.ª, e Outras e a FESMAR - Federação de Sindicatos dos
+Trabalhadores do Mar - Alteração Salarial e Outras........................................................
+Aviso de Projecto de Portaria que Aprova o Regulamento de Extensão do Contrato
+Colectivo de Trabalho Vertical entre a ACIF - CCIM - Associação Comercial e
+Industrial do Funchal - Câmara de Comércio e Indústria da Madeira e o SITAM -
+Sindicato dos Trabalhadores de Escritório, Comércio e Serviços da R.A.M. - Para o
+Sector de Armazenamento, Engarrafamento, Comércio por grosso e Exportação do
+Vinho da Madeira na Região Autónoma da Madeira - Revisão Salarial.........................
+Aviso de Projecto de Portaria que Aprova o Regulamento de Extensão do Contrato
+Colectivo de Trabalho entre a Associação Comercial e Industrial do Funchal - Câmara
+de Comércio e Indústria da Madeira e o Sindicato das Indústrias Eléctricas do Sul e
+Ilhas - Revisão Salarial..................................................................................................
+Aviso de Projecto de Portaria que Aprova o Regulamento de Extensão do CCT entre a
+AEEP - Associação dos Estabelecimentos de Ensino Particular e Cooperativo e a
+FENPROF - Federação Nacional dos Professores e Outros - Alteração Salarial e
+Outras.................................................................................................................................
+Aviso de Projecto de Portaria que Aprova o Regulamento de Extensão do Contrato
+Colectivo de Trabalho entre a ATMARAM - Associação de Transportes de Mercadorias
+em Aluguer da Região Autónoma da Madeira e o Sindicato dos Trabalhadores de
+Transportes Rodoviários da Região Autónoma da Madeira - Tabelas Salariais e
+Outras.................................................................................................................................
+Convenções Colectivas de Trabalho:
+Contrato Colectivo de Trabalho Vertical entre a ACIF - CCIM - Associação Comercial
+e Industrial do Funchal - Câmara de Comércio e Indústria da Madeira e o SITAM -
+Sindicato dos Trabalhadores de Escritório, Comércio e Serviços da R.A.M. - Para o
+Sector de Armazenamento, Engarrafamento, Comércio por grosso e Exportação do
+Vinho da Madeira na Região Autónoma da Madeira - Revisão
+Salarial...............................................................................................................................
+Contrato Colectivo de Trabalho entre a Associação Comercial e Industrial do Funchal -
+Câmara de Comércio e Indústria da Madeira e o Sindicato das Indústrias Eléctricas do
+Sul e Ilhas - Revisão Salarial.............................................................................................. 
+C C T entre a A E E P - Associação dos Estabelecimentos de Ensino Particular e
+Cooperativo e a FENPROF - Federação Nacional dos Professores e Outros - Alteração
+Salarial e Outras.................................................................................................................
+CCTentre a APEB - Associação Portuguesa das Empresas de Betão Pronto e a FETESE
+- Federação dos Sindicatos dos Trabalhadores de Serviços e outros (revisão global) -
+Rectificação.......................................................................................................................
+Contrato Colectivo de Trabalho entre a ATMARAM - Associação de Transportes de
+Mercadorias em Aluguer da Região Autónoma da Madeira e o Sindicato dos
+Trabalhadores de Transportes Rodoviários da Região Autónoma da Madeira -Tabelas
+Salariais e Outras. ..............................................................................................................
 
-            "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVAS\n"
-            "DE TRABALHO\n"
+SECRETARIAREGIONAL DOS RECURSOS HUMANOS
+
+"""
         )
 
     doc, sections_tree = parse(_text, nlp)
