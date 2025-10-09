@@ -5,6 +5,13 @@ from .split_sumario import split_sumario_body
 from .linking import collect_org_hits_from_spans, link_orgs, find_sumario_anchor, choose_body_start_by_second_org
 
 def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int):
+    """
+    sections_tree: output of parse(sumario_text, nlp)
+    offset: start char of sumário within full text_raw
+    sumario_len: len(sumario_text)
+    """
+    # 1) sections (adjust spans to full-text coordinates)
+    print("[DEBUG] builder hit:", __name__)
     sections = []
     for leaf in sections_tree:
         adj_heading_span = {
@@ -27,6 +34,19 @@ def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int
             "items": items,
         })
 
+    # 1b) Dedupe sections by (path, span) and merge items (stable order)
+    deduped = []
+    seen = {}
+    for s in sections:
+        key = (tuple(s["path"]), s["span"]["start"], s["span"]["end"])
+        if key in seen:
+            seen[key]["items"].extend(s["items"])
+        else:
+            seen[key] = {**s, "items": list(s["items"])}
+            deduped.append(seen[key])
+    sections = deduped
+
+    # 2) relations_section_item (Section → Item)
     relations_section_item = []
     for s in sections:
         for it in s["items"]:
@@ -39,6 +59,7 @@ def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int
                 "item_text": it["text"],
             })
 
+    # 3) section_ranges (heading → content range inside sumário)
     sections_sorted = sorted(sections, key=lambda x: x["span"]["start"])
     section_ranges = []
     for i, s in enumerate(sections_sorted):
@@ -51,7 +72,19 @@ def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int
             "heading_span": s["span"],
             "content_range": {"start": heading_end, "end": next_start}
         })
+    
+    # Final hard dedupe at payload level (even if upstream mitted a duplicate)
+    uniq = {}
+    for s in sections:
+        key = (tuple(s["path"]), s["span"]["start"], s["span"]["end"])
+        if key in uniq:
+            uniq[key]["itemns"].extend(s.get("items", []))
+        else:
+            uniq[key] = s
+    sections = list(uniq.values())
+
     return sections, relations_section_item, section_ranges
+
 
 def parse_sumario_and_body_bundle(text_raw: str, nlp):
     doc_full = nlp(text_raw)

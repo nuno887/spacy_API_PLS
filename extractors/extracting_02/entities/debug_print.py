@@ -30,31 +30,53 @@ def print_results(doc, sections_tree):
 
 
 def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
-    #SPLIT
+    import json
+    import traceback
+
+    print("[DEBUG] print_payload_summary called")
+    traceback.print_stack(limit=5)
+
     sum_span = payload["sumario"]["span"]
     body_span = payload["body"]["span"]
+
+    print("[DEBUG] sections in payload:", len(payload["sumario"]["sections"]))
+    print(
+        "[DEBUG] unique keys:",
+        len({(tuple(s["path"]), s["span"]["start"], s["span"]["end"])
+             for s in payload["sumario"]["sections"]})
+    )
+
     print("\n=== SPLIT ===")
     print(f"Sumário: {sum_span['start']}..{sum_span['end']} | len={sum_span['end']-sum_span['start']}")
-    print(f"BOdy   : {body_span['start']}..{body_span['end']} | len={body_span['end']} | len={body_span['end']-body_span['start']}")
+    print(f"Body   : {body_span['start']}..{body_span['end']} | len={body_span['end']-body_span['start']}")
     print(f"Strategy: {payload['diagnostics']['strategy']}")
 
     # Sections & items
     print("\n=== SUMÁRIO SECTIONS ===")
-    for s in payload["sumario"]["sections"]:
+    seen_sec = set()
+    secs = payload["sumario"]["sections"]
+    print(f"[DEBUG] sections id: {id(secs)} len: {len(secs)}")
+    for idx, s in enumerate(secs):
+        sec_key = (tuple(s["path"]), s["span"]["start"], s["span"]["end"])
+        if sec_key in seen_sec:
+            continue
+        seen_sec.add(sec_key)
         path = " > ".join(s["path"])
-        print(f"- {path}  @ {s['span']['start']}..{s['span']['end']}")
+        print(f"- {path}  @ {s['span']['start']}..{s['span']['end']}  [#{idx}]")
         for it in s["items"]:
-            print(f"- {path}  @ {s['span']['start']}..{s['span']['end']}")
-            for it in s["items"]:
-                print(f"   • {it['text']}  @ {it['span']['start']}..{it['span']['end']} ")
-    
-    # Section -> Item relations
-    print("|n=== SUMÁRIO RELATIONS (Section -> Item) ===")
+            print(f"   • {it['text']}  @ {it['span']['start']}..{it['span']['end']}")
+
+    # Section → Item relations
+    print("\n=== SUMÁRIO RELATIONS (Section -> Item) ===")
+    for r in payload["sumario"]["relations_section_item"]:
+        print(f"{' > '.join(r['section_path'])}  ::  {r['item_text']}")
+
+    # Section ranges
+    print("\n=== SUMÁRIO SECTION RANGES ===")
     for sr in payload["sumario"]["section_ranges"]:
         print(f"{' > '.join(sr['section_path'])}  ::  content {sr['content_range']['start']}..{sr['content_range']['end']}")
 
-    
-    # ORG -> ORG relations
+    # ORG → ORG relations
     print("\n=== ORG -> ORG RELATIONS ===")
     rels = payload.get("relations_org_to_org", [])
     if not rels:
@@ -65,7 +87,7 @@ def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
             print(f"  sumário: '{r['sumario']['surface_raw']}' @{r['sumario']['span']['start']}..{r['sumario']['span']['end']}")
             print(f"  body   : '{r['body']['surface_raw']}' @{r['body']['span']['start']}..{r['body']['span']['end']}")
             print(f"  conf   : {r['confidence']}")
-    
+
     # Diagnostics
     diag = payload.get("diagnostics", {})
     if diag.get("unmatched_sumario_orgs") or diag.get("unmatched_body_orgs") or diag.get("split_anchor"):
@@ -82,13 +104,11 @@ def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
                 print(f"  - '{h['surface_raw']}' @{h['span']['start']}..{h['span']['end']} | key={h['canonical_key']}")
 
     # Optional save
-        if save_path:
-            try:
-                with open(save_path, "w", encoding="utf-8") as f:
-                    json.dump(payload, f, ensure_ascii=False, indent=2)
-                print(f"\nSaved payload to {save_path}")
-            except Exception as e:
-                print(f"\nCouldn’t save payload to {save_path}: {e}")
-
-
+    if save_path:
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            print(f"\nSaved payload to {save_path}")
+        except Exception as e:
+            print(f"\nCouldn’t save payload to {save_path}: {e}")
 

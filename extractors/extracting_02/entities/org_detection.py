@@ -1,7 +1,8 @@
 from typing import List
 from spacy.tokens import Span
 from .constants import HEADER_STARTERS
-from .normalization import canonical_org_key
+from .normalization import strip_diacritics
+import re
 
 def _is_all_caps_line(ln: str) -> bool:
     t = ln.strip()
@@ -10,11 +11,20 @@ def _is_all_caps_line(ln: str) -> bool:
     if not letters: return False
     return all(ch == ch.upper() for ch in letters)
 
+# Cache a sanitized, normalized starter list once (avoids type surprises and repeat work)
+STARTERS_NORM = tuple(
+    strip_diacritics(str(s)).upper().replace(" ", "").replace("-", "")
+    for s in HEADER_STARTERS
+)
+
 def _starts_with_starter(ln: str) -> bool:
+    #Accent-insensitive, tolerant to spaces/hyphens/fused tokens; prefix match
     t = ln.strip()
-    if not t: return False
-    first = __import__("re").split(r'[\s\-–—:,;./]+', t, 1)[0]
-    return first.upper() in HEADER_STARTERS
+    if not t:
+        return False
+    first_token = re.split(r'[\s\---:,;./]+', t, 1)[0]
+    norm_first = strip_diacritics(first_token).upper().replace(" ", "").replace("-", "")
+    return any(norm_first.startswith(s) for s in STARTERS_NORM)
 
 def find_org_spans(doc, text: str) -> List[Span]:
     org_spans = []

@@ -28,7 +28,8 @@ def scan_headings(text: str, alias_to_nodes: Dict[str, List[Node]]) -> List[Head
         start_char = line_starts[i]
         end_char = line_starts[i] + len(lines[i])
         for node in nodes:
-            key = (start_char, end_char, node.canonical)
+            #Dedupe per physical line + canonical, so alias variants on the same line don't double emit
+            key = (start_char, node.canonical)
             if key in seen: continue
             seen.add(key)
             hits.append(HeadingHit(
