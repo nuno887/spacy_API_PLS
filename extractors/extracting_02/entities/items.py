@@ -56,9 +56,10 @@ def clean_item_text(raw: str) -> str:
 def _find_inline_item_boundaries(item_text: str, abs_start_char: int) -> List[int]:
     boundaries: List[int] = []
     s = item_text
-    for m in re.finditer(r'\.(?:[ \t\u00A0]+)', s):
+    for m in re.finditer(r'\.(?:\s+)', s):
         j = m.start()
-        tail = s[m.end():].lstrip(' "\'\u201c\u201d\u00ab\u00bb')
+        # Skip any whitespace (including newlines) and quote-like characters before checking next token
+        tail = s[m.end():].lstrip(' \t\r\n"\'\u201c\u201d\u00ab\u00bb')
         if _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
             boundaries.append(abs_start_char + j + 1)
     return boundaries

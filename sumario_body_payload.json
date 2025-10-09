@@ -98,9 +98,16 @@
             }
           },
           {
-            "text": "Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP - Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca Alteração Salarial e Outras. Contrato Colectivo de Trabalho entre a Associação dos Industriais e Exportadores de Bordados e Tapeçarias da Madeira e o Sindicato dos Trabalhadores da Indústria de Bordados, Tapeçarias, Têxteis e Artesanato da Região Autónoma da Madeira - Para o Sector da Indústria de Bordados e Tapeçarias da Madeira - Revisão da Tabela Salarial e Outras",
+            "text": "Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP - Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca Alteração Salarial e Outras",
             "span": {
               "start": 2910,
+              "end": 3176
+            }
+          },
+          {
+            "text": "Contrato Colectivo de Trabalho entre a Associação dos Industriais e Exportadores de Bordados e Tapeçarias da Madeira e o Sindicato dos Trabalhadores da Indústria de Bordados, Tapeçarias, Têxteis e Artesanato da Região Autónoma da Madeira - Para o Sector da Indústria de Bordados e Tapeçarias da Madeira - Revisão da Tabela Salarial e Outras",
+            "span": {
+              "start": 3176,
               "end": 3539
             }
           },
@@ -119,9 +126,16 @@
             }
           },
           {
-            "text": "CCT entre a Liga Portuguesa de Futebol Profissional e a FEPCES - Federação Portuguesa dos Sindicatos do Comércio, Escritórios e Serviços e Outros - Revisão Global. CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca - Alteração Salarial e Outras",
+            "text": "CCT entre a Liga Portuguesa de Futebol Profissional e a FEPCES - Federação Portuguesa dos Sindicatos do Comércio, Escritórios e Serviços e Outros - Revisão Global",
             "span": {
               "start": 3990,
+              "end": 4153
+            }
+          },
+          {
+            "text": "CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca - Alteração Salarial e Outras",
+            "span": {
+              "start": 4153,
               "end": 4393
             }
           }
@@ -305,9 +319,27 @@
         },
         "item_span": {
           "start": 2910,
+          "end": 3176
+        },
+        "item_text": "Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP - Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca Alteração Salarial e Outras"
+      },
+      {
+        "section_key": "RegulamentosExtensao",
+        "section_path": [
+          "RegulamentosExtensao"
+        ],
+        "surface_path": [
+          "Regulamentos de Extensão:"
+        ],
+        "section_span": {
+          "start": 460,
+          "end": 486
+        },
+        "item_span": {
+          "start": 3176,
           "end": 3539
         },
-        "item_text": "Aviso de Projecto de Portaria que aprova o Regulamento de Extensão do CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP - Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca Alteração Salarial e Outras. Contrato Colectivo de Trabalho entre a Associação dos Industriais e Exportadores de Bordados e Tapeçarias da Madeira e o Sindicato dos Trabalhadores da Indústria de Bordados, Tapeçarias, Têxteis e Artesanato da Região Autónoma da Madeira - Para o Sector da Indústria de Bordados e Tapeçarias da Madeira - Revisão da Tabela Salarial e Outras"
+        "item_text": "Contrato Colectivo de Trabalho entre a Associação dos Industriais e Exportadores de Bordados e Tapeçarias da Madeira e o Sindicato dos Trabalhadores da Indústria de Bordados, Tapeçarias, Têxteis e Artesanato da Região Autónoma da Madeira - Para o Sector da Indústria de Bordados e Tapeçarias da Madeira - Revisão da Tabela Salarial e Outras"
       },
       {
         "section_key": "RegulamentosExtensao",
@@ -359,9 +391,27 @@
         },
         "item_span": {
           "start": 3990,
+          "end": 4153
+        },
+        "item_text": "CCT entre a Liga Portuguesa de Futebol Profissional e a FEPCES - Federação Portuguesa dos Sindicatos do Comércio, Escritórios e Serviços e Outros - Revisão Global"
+      },
+      {
+        "section_key": "RegulamentosExtensao",
+        "section_path": [
+          "RegulamentosExtensao"
+        ],
+        "surface_path": [
+          "Regulamentos de Extensão:"
+        ],
+        "section_span": {
+          "start": 460,
+          "end": 486
+        },
+        "item_span": {
+          "start": 4153,
           "end": 4393
         },
-        "item_text": "CCT entre a Liga Portuguesa de Futebol Profissional e a FEPCES - Federação Portuguesa dos Sindicatos do Comércio, Escritórios e Serviços e Outros - Revisão Global. CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca - Alteração Salarial e Outras"
+        "item_text": "CCT entre a APAT - Associação dos Transitários de Portugal e o SIMAMEVIP Sindicato dos Trabalhadores da Marinha Mercante, Agências de Viagens, Transitários e Pesca - Alteração Salarial e Outras"
       }
     ],
     "section_ranges": [
