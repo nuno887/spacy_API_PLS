@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import List, Dict
-from .taxonomy import Node
+from .taxonomy import Node, TAXONOMY
 from .normalization import normalize_heading_text, normalize_text_offsetsafe
 
 @dataclass
@@ -23,14 +23,7 @@ def scan_headings(text: str, alias_to_nodes: Dict[str, List[Node]]) -> List[Head
         raw_line = normalize_text_offsetsafe(ln)
         surface = raw_line.strip()
 
-        #DEBUG: inspect the suspicious line ("Regulamentos de Extensão")
-        if surface.lower().startswith("regulamentos de extensão") or surface.lower().startswith("regulamentos de extnsao"):
-            tail = raw_line.rstrip("\n\r")[-8:] #last few chars to see weird colons/spaces
-            print("[DEBU][scan_headings] raw_line =", repr(raw_line))
-            print("[DEBUG][scan_headings] surface =", repr(surface))
-            print("[DEBUG][scan_headings] tail cps =", " ".join(f"U+{ord(c):04X}" for c in tail))
-
-
+   
 
         if not surface: continue
         norm = normalize_heading_text(surface)
