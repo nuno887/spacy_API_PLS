@@ -8,6 +8,7 @@ from .org_detection import find_org_spans
 from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries
 from .taxonomy import TAXONOMY
 from .taxonomy import Node
+from .normalization import normalize_heading_text
 
 
 def _dedup_spans(spans: List[Span]) -> List[Span]:
@@ -57,7 +58,9 @@ def parse(text: str, nlp):
     i = 0
     while i < len(hits):
         hit = hits[i]
-        candidates = alias_to_nodes.get(__import__("re").sub(r'\s+', ' ', hit.surface.strip(':').lower()), [])
+        # Using the same normalization that built alias_to_nodes (lower + strip deacritics + trim colon + squeeze spaces)
+        key_norm = normalize_heading_text(hit.surface)
+        candidates = alias_to_nodes.get(key_norm, [])
         chosen = None
         current_parent = stack[-1][0] if stack else None
         for node in sorted(candidates, key=lambda n: (-n.level, -len(n.canonical))):
@@ -151,7 +154,6 @@ def parse(text: str, nlp):
 
     # dedupe leaves by (path, heading span) and merge items
     tmp = []
-    print("\n[DEBUG] Leaf candidates before dedupe:")
     for leaf in leaves:
         tmp.append({
             "path": leaf["path"],
@@ -159,7 +161,6 @@ def parse(text: str, nlp):
             "span": leaf["span"],
             "items": items_per_leaf.get(id(leaf), [])
         })
-        print(f"{leaf['path']} {leaf['span']}")
 
     deduped = []
     seen = {}

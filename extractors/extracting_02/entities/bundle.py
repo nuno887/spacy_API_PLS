@@ -11,7 +11,6 @@ def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int
     sumario_len: len(sumario_text)
     """
     # 1) sections (adjust spans to full-text coordinates)
-    print("[DEBUG] builder hit:", __name__)
     sections = []
     for leaf in sections_tree:
         adj_heading_span = {

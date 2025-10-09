@@ -23,29 +23,17 @@ def print_results(doc, sections_tree):
         else:
             print("  ITEMS (0)")
         print()
-
+"""
     print("\n=== ALL ENTITY SPANS (debug) ===")
     for ent in doc.ents:
         print(f"{ent.label_:<20} @{ent.start_char:>5}-{ent.end_char:<5} | {repr(ent.text)}")
-
+"""
 
 def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
-    import json
-    import traceback
-
-    print("[DEBUG] print_payload_summary called")
-    traceback.print_stack(limit=5)
-
     sum_span = payload["sumario"]["span"]
     body_span = payload["body"]["span"]
 
-    print("[DEBUG] sections in payload:", len(payload["sumario"]["sections"]))
-    print(
-        "[DEBUG] unique keys:",
-        len({(tuple(s["path"]), s["span"]["start"], s["span"]["end"])
-             for s in payload["sumario"]["sections"]})
-    )
-
+  
     print("\n=== SPLIT ===")
     print(f"Sumário: {sum_span['start']}..{sum_span['end']} | len={sum_span['end']-sum_span['start']}")
     print(f"Body   : {body_span['start']}..{body_span['end']} | len={body_span['end']-body_span['start']}")
@@ -55,7 +43,6 @@ def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
     print("\n=== SUMÁRIO SECTIONS ===")
     seen_sec = set()
     secs = payload["sumario"]["sections"]
-    print(f"[DEBUG] sections id: {id(secs)} len: {len(secs)}")
     for idx, s in enumerate(secs):
         sec_key = (tuple(s["path"]), s["span"]["start"], s["span"]["end"])
         if sec_key in seen_sec:
