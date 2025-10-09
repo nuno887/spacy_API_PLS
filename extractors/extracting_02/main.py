@@ -1,10 +1,10 @@
 import spacy
-from entities import parse, parse_sumario_and_body_bundle, print_results
+from entities import parse, parse_sumario_and_body_bundle, print_results, print_payload_summary
 
 nlp = spacy.load("pt_core_news_lg", disable=["ner", "tagger", "parser", "lemmatizer"])
 
 if __name__ == "__main__":
-    with open("sample_input.txt", "r", encoding="utf-8") as f:
+    with open("sample_input_01.txt", "r", encoding="utf-8") as f:
         text = f.read()
 
     # If you want just the sumário parse:
@@ -13,4 +13,5 @@ if __name__ == "__main__":
 
     # Or the full bundle (sumário/body split + linking):
     payload, sumario_text, body_text, _ = parse_sumario_and_body_bundle(text, nlp)
+    print_payload_summary(payload, save_path="sumario_body_payload.json")
     # print(payload)  # or handle as needed
