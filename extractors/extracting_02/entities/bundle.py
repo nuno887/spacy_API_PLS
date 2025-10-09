@@ -2,7 +2,12 @@ from typing import Tuple
 from .parser import parse
 from .org_detection import find_org_spans
 from .split_sumario import split_sumario_body
-from .linking import collect_org_hits_from_spans, link_orgs, find_sumario_anchor, choose_body_start_by_second_org
+from .linking import (
+    collect_org_hits_from_spans,
+    link_orgs,
+    find_sumario_anchor,
+    choose_body_start_by_second_org,
+)
 
 def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int):
     """
@@ -71,13 +76,13 @@ def _build_sumario_struct_from_tree(sections_tree, offset: int, sumario_len: int
             "heading_span": s["span"],
             "content_range": {"start": heading_end, "end": next_start}
         })
-    
-    # Final hard dedupe at payload level (even if upstream mitted a duplicate)
+
+    # Final hard dedupe at payload level (even if upstream emitted a duplicate)
     uniq = {}
     for s in sections:
         key = (tuple(s["path"]), s["span"]["start"], s["span"]["end"])
         if key in uniq:
-            uniq[key]["itemns"].extend(s.get("items", []))
+            uniq[key]["items"].extend(s.get("items", []))
         else:
             uniq[key] = s
     sections = list(uniq.values())
@@ -101,9 +106,44 @@ def parse_sumario_and_body_bundle(text_raw: str, nlp):
         sections_tree, offset=sum_start, sumario_len=len(sumario_text)
     )
 
+    # ORG hits per slice + ORG↔ORG linking
     sum_orgs  = collect_org_hits_from_spans(org_spans_full, text_raw, sum_span, source="sumario")
     body_orgs = collect_org_hits_from_spans(org_spans_full, text_raw, body_span, source="body")
     relations, diag = link_orgs(sum_orgs, body_orgs)
+
+    # Attach nearest preceding Sumário ORG (and linked Body ORG, if any) to each section
+    sum_orgs_sorted = sorted(sum_orgs, key=lambda h: h["span"]["start"])
+    org_bands = []
+    for i, org in enumerate(sum_orgs_sorted):
+        band_start = org["span"]["start"]
+        band_end = sum_orgs_sorted[i + 1]["span"]["start"] if i + 1 < len(sum_orgs_sorted) else sum_end
+        org_bands.append((band_start, band_end, org))
+
+    # Map body org by canonical key via relations
+    body_by_key = {r["key"]: r["body"] for r in relations}
+
+    # Enrich sections with org_context
+    for s in sections:
+        hstart = s["span"]["start"]
+        attached = None
+        for a, b, org in org_bands:
+            if a <= hstart < b:
+                attached = org
+                break
+        if attached:
+            s["org_context"] = {
+                "sumario_org": {
+                    "surface_raw": attached["surface_raw"],
+                    "span": attached["span"],
+                    "canonical_key": attached["canonical_key"],
+                }
+            }
+            bod = body_by_key.get(attached["canonical_key"])
+            if bod:
+                s["org_context"]["body_org"] = {
+                    "surface_raw": bod["surface_raw"],
+                    "span": bod["span"],
+                }
 
     second_org_pos = choose_body_start_by_second_org(org_spans_full, text_raw, find_sumario_anchor(text_raw))
     strategy = "second_org_pair" if (second_org_pos == body_start) else "fallback_first_l1_or_window"

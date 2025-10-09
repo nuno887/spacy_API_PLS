@@ -23,11 +23,7 @@ def print_results(doc, sections_tree):
         else:
             print("  ITEMS (0)")
         print()
-"""
-    print("\n=== ALL ENTITY SPANS (debug) ===")
-    for ent in doc.ents:
-        print(f"{ent.label_:<20} @{ent.start_char:>5}-{ent.end_char:<5} | {repr(ent.text)}")
-"""
+
 
 def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
     sum_span = payload["sumario"]["span"]
@@ -49,7 +45,12 @@ def print_payload_summary(payload: dict, save_path: str | None = None) -> None:
             continue
         seen_sec.add(sec_key)
         path = " > ".join(s["path"])
-        print(f"- {path}  @ {s['span']['start']}..{s['span']['end']}  [#{idx}]")
+        org_tag = ""
+        oc = s.get("org_context")
+        if oc and oc.get("sumario_org"):
+            org_surface = oc["sumario_org"]["surface_raw"].splitlines()[0].strip()
+            org_tag = f" (ORG: {org_surface})"
+        print(f"- {path}  @ {s['span']['start']}..{s['span']['end']}  [#{idx}]{org_tag}")
         for it in s["items"]:
             print(f"   • {it['text']}  @ {it['span']['start']}..{it['span']['end']}")
 
