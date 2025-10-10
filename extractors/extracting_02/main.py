@@ -1,5 +1,7 @@
 import spacy
 from entities import parse, parse_sumario_and_body_bundle, print_results, print_payload_summary
+import sys
+print(sys.version)
 
 from entities import parse_sumario_and_body_bundle
 from body_extraction import run_extraction

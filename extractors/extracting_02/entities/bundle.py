@@ -1,4 +1,5 @@
 from typing import Tuple
+
 from .parser import parse
 from .org_detection import find_org_spans
 from .split_sumario import split_sumario_body
