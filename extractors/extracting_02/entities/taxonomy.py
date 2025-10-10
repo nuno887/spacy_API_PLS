@@ -32,6 +32,7 @@ L1_NODES = [
         "Regulamentos de Extensão:", "Regulamentos de Extensão",
         "Regulamentos de Extensao:", "Regulamentos de Extensao"
     ]),
+    Node("DespachosConjuntos", 1, ["Despachos Conjuntos:", "Despachos Conjuntos"]),
 ]
 
 L2_NODES = [
