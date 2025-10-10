@@ -32,7 +32,10 @@ def run_extraction(
     results: List[Dict[str, Any]] = []
 
     # Pre-make a lightweight doc for sentence expansion
-    body_doc: Doc = nlp.make_doc(body_text)
+    if "parser" not in nlp.pipe_names and "senter" not in nlp.pipe_names and "sentencizer" not in nlp.pipe_names:
+        nlp.add_pipe("sentencizer", first=True, config={"punct_chars": [".", "!", "?", ";", ":"]})
+    # Run the pipeline so sentencizer (or parser/senter) marks sentences
+    body_doc: Doc = nlp(body_text)
 
     for s in sections:
         # Section metadata

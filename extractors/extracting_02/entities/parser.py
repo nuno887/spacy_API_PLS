@@ -89,6 +89,7 @@ def parse(text: str, nlp):
 
     # ORG spans across the whole text
     org_spans = find_org_spans(doc, text)
+    org_spans.sort(key=lambda sp: sp.start_char)
 
     # heading leaf spans (for labeling)
     heading_leaf_spans: List[Span] = []
@@ -99,7 +100,7 @@ def parse(text: str, nlp):
         label = leaf["path"][-1]
         heading_leaf_spans.append(Span(doc, ch.start, ch.end, label=label))
 
-    # collect items within each leaf's text range
+    # collect items within each leaf's text range (classic taxonomy path)
     heading_starts = {l["span"]["start"] for l in leaves}
     item_spans: List[Span] = []
     for leaf in leaves:
@@ -128,12 +129,12 @@ def parse(text: str, nlp):
         if ch is not None:
             refined_item_spans.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
 
-    # finalize entities
+    # finalize entities (ORG + headings + items)
     all_spans = _dedup_spans(org_spans + heading_leaf_spans + refined_item_spans)
     all_spans = filter_spans(all_spans)
     doc.ents = tuple(_dedup_spans(all_spans))
 
-    # build sections_tree with items
+    # build sections_tree with items (taxonomy leaves)
     sections_tree: List[Dict] = []
     items_per_leaf: Dict[int, List[Dict]] = defaultdict(list)
     seen_item_spans_per_leaf: Dict[int, set] = defaultdict(set)
@@ -173,4 +174,49 @@ def parse(text: str, nlp):
             deduped.append(seen[key])
 
     sections_tree = deduped
+
+    # -------------------------------------------------------------
+    # NEW: detect "instrument series" directly under each ORG block
+    #      (covers the shape: ORG banner -> list of instruments)
+    # -------------------------------------------------------------
+    # Boundaries that terminate an instrument-series region
+    boundary_starts = sorted(set(heading_starts) | {sp.start_char for sp in org_spans} | {len(text)})
+
+    def _next_boundary_after(pos: int) -> int:
+        for b in boundary_starts:
+            if b > pos:
+                return b
+        return len(text)
+
+    series_sections = []
+    for osp in org_spans:
+        # Scan AFTER the org header block, up to the next boundary (next org/heading/EOF)
+        region_start = osp.end_char
+        region_end = _next_boundary_after(osp.start_char)
+        if region_start >= region_end:
+            continue
+
+        # Use existing item segmentation in this org-scoped gap
+        series_items = []
+        for s_char, e_char in find_item_char_spans(text, region_start, region_end, set(boundary_starts)):
+            if s_char >= e_char:
+                continue
+            series_items.append({
+                "text": clean_item_text(text[s_char:e_char]),
+                "span": {"start": s_char, "end": e_char},
+            })
+
+        if series_items:
+            # Lightweight section entry for instrument series
+            series_sections.append({
+                "path": ["Instrumentos"],                 # new section kind
+                "surface": ["Instrumentos"],              # display label
+                "span": {"start": region_start, "end": region_end},
+                "items": series_items,
+                "org_span": {"start": osp.start_char, "end": osp.end_char},  # optional context
+            })
+
+    # Merge series sections alongside taxonomy leaves
+    sections_tree.extend(series_sections)
+
     return doc, sections_tree

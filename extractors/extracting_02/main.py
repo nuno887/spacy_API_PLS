@@ -6,7 +6,7 @@ from body_extraction import run_extraction
 from body_extraction.debug_print import print_report  # optional
 
 nlp = spacy.load("pt_core_news_lg", disable=["ner", "tagger", "parser", "lemmatizer"])
-
+nlp.add_pipe("sentencizer", first=True, config={"punct_chars": [".", "!", "?", ";", ":"]})
 if __name__ == "__main__":
     with open("sample_input_01.txt", "r", encoding="utf-8") as f:
         text = f.read()
@@ -19,9 +19,6 @@ if __name__ == "__main__":
     payload, sumario_text, body_text, _ = parse_sumario_and_body_bundle(text, nlp)
     print_payload_summary(payload, save_path="sumario_body_payload.json")
 
-    if "sentencizer" not in nlp.pipe_names:
-        nlp.add_pipe("sentencizer", config={"punct_chars": [".", "!", "?", ";"]})
-    
     sections = payload["sumario"]["sections"]
     rels = payload.get("relations_org_to_org", [])
 
