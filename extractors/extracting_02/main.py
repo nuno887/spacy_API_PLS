@@ -1,6 +1,10 @@
 import spacy
 from entities import parse, parse_sumario_and_body_bundle, print_results, print_payload_summary
 
+from entities import parse_sumario_and_body_bundle
+from body_extraction import run_extraction
+from body_extraction.debug_print import print_report  # optional
+
 nlp = spacy.load("pt_core_news_lg", disable=["ner", "tagger", "parser", "lemmatizer"])
 
 if __name__ == "__main__":
@@ -14,4 +18,14 @@ if __name__ == "__main__":
     # Or the full bundle (sumário/body split + linking):
     payload, sumario_text, body_text, _ = parse_sumario_and_body_bundle(text, nlp)
     print_payload_summary(payload, save_path="sumario_body_payload.json")
+
+    if "sentencizer" not in nlp.pipe_names:
+        nlp.add_pipe("sentencizer", config={"punct_chars": [".", "!", "?", ";"]})
+    
+    sections = payload["sumario"]["sections"]
+    rels = payload.get("relations_org_to_org", [])
+
+    report = run_extraction(body_text, sections, rels, nlp)
+    print_report(report, body_text)
+
     # print(payload)  # or handle as needed
