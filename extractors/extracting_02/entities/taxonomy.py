@@ -20,7 +20,7 @@ L1_NODES = [
         "Convenções Colectivas de Trabalho", "Convenções Coletivas de Trabalho:",
         "Convencoes Coletivas de Trabalho:", "Convenções Colectivas de Trabalho:"
     ]),
-    Node("Organizações do Trabalho", 1, [
+    Node("OrganizaçõesTrabalho", 1, [
         "Organizações do Trabalho", "Organizacoes do Trabalho",
         "Organizações do Trabalho:", "Organizacoes do Trabalho:"
     ]),
@@ -33,6 +33,12 @@ L1_NODES = [
         "Regulamentos de Extensao:", "Regulamentos de Extensao"
     ]),
     Node("DespachosConjuntos", 1, ["Despachos Conjuntos:", "Despachos Conjuntos"]),
+    Node("AvisosColetivas", 1, [
+        "Avisos de cessação da vigência de convenções coletivas:",
+        "Avisos de cessação da vigência de convenções coletivas",
+        "Avisos de cessacao da vigencia de convencoes coletivas:",
+        "Avisos de cessacao da vigencia de convencoes coletivas"
+    ])
 ]
 
 L2_NODES = [
