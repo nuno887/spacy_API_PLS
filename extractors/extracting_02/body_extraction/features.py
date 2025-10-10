@@ -13,7 +13,7 @@ def normalize_for_match(s: str) -> str:
     # Fix common line-break hyphenation patterns (hard + soft hyphen)
     s = s.replace("-\r\n", "").replace("-\n", "").replace("\u00AD\n", "").replace("\n00AD\r\n", "")
     # Also remove standalone soft hyphen if present
-    s = s.replace("\u00AD")
+    s = s.replace("\u00AD", "")
     s = s.replace("“", '"').replace("”", '"').replace("’", "'").replace("‘", "'")
     s = strip_diacritics(s).casefold()
     s = re.sub(r"\s+", " ", s).strip()

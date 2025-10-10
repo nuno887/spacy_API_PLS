@@ -25,7 +25,9 @@ if __name__ == "__main__":
     sections = payload["sumario"]["sections"]
     rels = payload.get("relations_org_to_org", [])
 
+    print(f"Body_text:<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< {body_text}")
+
     report = run_extraction(body_text, sections, rels, nlp)
-    print_report(report, body_text)
+    print_report(report, body_text, show_full=True)
 
     # print(payload)  # or handle as needed

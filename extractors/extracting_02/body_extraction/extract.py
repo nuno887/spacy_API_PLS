@@ -1,88 +1,103 @@
-from typing import Dict, Any, List, Tuple
-import spacy
+# body_extraction/extract.py
+
+from typing import List, Dict, Any, Optional
 from spacy.tokens import Doc
-from .schemas import ExtractionReport, ExtractionResult
-from .anchors import build_body_org_bands, pick_band_for_section
+
+from .anchors import build_body_org_bands_from_relations, pick_band_for_section
 from .align import locate_candidates_in_window
-from .scorer import pick_best_candidate
-from .postprocess import expand_to_sentence
-from .config import ANCHOR_WINDOW_CHARS
+from .spans import expand_to_sentence
+from .scoring import pick_best_candidate
+from .sections import find_section_block_in_band_spacy
 
-def _doc_for_body(nlp, full_text: str, body_span: Dict[str, int]) -> Tuple[Doc, int]:
-    """Create a spaCy Doc for the body slice; return doc and its absolute start offset."""
-    a, b = body_span["start"], body_span["end"]
-    body_text = full_text[a:b]
-    # fast tokenizer-only is fine (your pt_core_news_lg with disabled pipes is OK)
-    return nlp.make_doc(body_text), a
 
-def run_extraction(text_raw: str, payload: Dict[str, Any], nlp) -> ExtractionReport:
+def run_extraction(
+    body_text: str,
+    sections: List[Dict[str, Any]],
+    relations_org_to_org: Optional[List[Dict[str, Any]]],
+    nlp,
+    body_offset: int = 0,  # default keeps backward-compat with older calls
+) -> Dict[str, Any]:
     """
-    Use spaCy for tokenization and sentence boundaries (from tokenizer-only doc).
+    Extract body spans for each Sumário item using ORG bands, section blocks, and title/anchor matching.
+    If matching fails, fall back to the entire section block within the ORG band (no clipping).
     """
-    # Build bands and body doc
-    body_bands = build_body_org_bands(payload)
-    default_band = body_bands[0]
-    body_doc, body_abs0 = _doc_for_body(nlp, text_raw, payload["body"]["span"])
 
-    results: List[ExtractionResult] = []
+    # Build ORG bands (body-relative) from relations
+    body_bands = build_body_org_bands_from_relations(
+        len(body_text),
+        relations_org_to_org or [],
+        body_offset,
+    )
 
-    sections = payload["sumario"]["sections"]
+    results: List[Dict[str, Any]] = []
+
+    # Pre-make a lightweight doc for sentence expansion
+    body_doc: Doc = nlp.make_doc(body_text)
+
     for s in sections:
-        # Decide band: prefer section's attached body_org when present
-        if "org_context" in s and s["org_context"].get("body_org"):
-            bobj = s["org_context"]["body_org"]
-            sect_band = pick_band_for_section(body_bands, bobj["span"]["start"], default_band)
-        else:
-            sect_band = pick_band_for_section(body_bands, s["span"]["start"], default_band)
+        # Section metadata
+        sec_path = s.get("path", [])
+        sec_key = sec_path[-1] if sec_path else "(unknown)"
+        sec_span = s.get("span", {"start": 0, "end": 0})
+        sec_start_in_sumario = int(sec_span.get("start", 0))
 
-        a, z, _ = sect_band
-        band_len = z - a
-        if band_len > ANCHOR_WINDOW_CHARS * 2:
-            win_start, win_end = a, min(z, a + ANCHOR_WINDOW_CHARS)
-        else:
-            win_start, win_end = a, z
+        # Pick the band where this section likely lives (by section heading start)
+        default_band = (0, len(body_text), {"surface_raw": "", "span": {"start": 0, "end": len(body_text)}})
+        a, z, band_meta = pick_band_for_section(body_bands, sec_start_in_sumario - body_offset, default_band)
 
+        # Define a search window inside the band (here we use full band; you can narrow if desired)
+        win_start, win_end = a, z
+
+        # Iterate items for this section
         for it in s.get("items", []):
-            # Locate candidates inside window using spaCy
-            cands = locate_candidates_in_window(nlp, text_raw, win_start, win_end, it["text"])
-            best = pick_best_candidate(nlp, it["text"], text_raw, cands)
+            # Find candidates in the window
+            cands = locate_candidates_in_window(nlp, body_text, win_start, win_end, it["text"])
+            best = pick_best_candidate(cands)
 
+            # Decide final span
             if best.get("method", "none") != "none":
-                # Expand to sentence boundaries using body doc (offset-aware)
-                abs_s, abs_e = best["start"], best["end"]
-                # body_doc is relative to body_abs0; we need char positions within body_doc
-                s_local = abs_s - body_abs0
-                e_local = abs_e - body_abs0
-                # Guard bounds
-                s_local = max(0, min(len(body_doc.text), s_local))
-                e_local = max(0, min(len(body_doc.text), e_local))
-                # Expand within the body_doc, then remap back to absolute
-                exp_s_local, exp_e_local = expand_to_sentence(body_doc, s_local, e_local)
-                body_span = {"start": body_abs0 + exp_s_local, "end": body_abs0 + exp_e_local}
+                s0, e0 = int(best["start"]), int(best["end"])
+                exp_s, exp_e = expand_to_sentence(body_doc, s0, e0)
+                body_span = {"start": exp_s, "end": exp_e}
+                method = best.get("method", "exact")
+                confidence = float(best.get("confidence", 1.0))
             else:
-                body_span = {"start": win_start, "end": win_start}  # empty/default
+                # === SECTION FALLBACK (spaCy-based) ===
+                # Prefer surface label from Sumário, else canonical key from path
+                sec_label_surface = (s.get("surface_path") or [sec_key])[-1]
+                sec_start_abs, sec_end_abs = find_section_block_in_band_spacy(
+                    nlp,
+                    body_text,
+                    a,
+                    z,
+                    sec_label_surface,
+                    section_key=sec_key,
+                )
+                body_span = {"start": sec_start_abs, "end": sec_end_abs}
+                method = "section_fallback"
+                confidence = 0.10
 
             results.append({
-                "section_path": s["path"],
-                "section_span": s["span"],
+                "section_path": sec_path,
+                "section_name": sec_key,
+                "section_span": sec_span,
                 "item_text": it["text"],
-                "item_span_sumario": it["span"],
-                "org_context": s.get("org_context", {}),
+                "item_span_sumario": it.get("span"),
+                "org_context": band_meta,
                 "body_span": body_span,
-                "confidence": float(best.get("confidence", 0.0)),
-                "method": best.get("method", "none"),
+                "confidence": confidence,
+                "method": method,
                 "diagnostics": {
                     "window": {"start": win_start, "end": win_end},
                     "num_candidates": len(cands),
-                    "first_anchor": cands[0]["anchor_used"] if cands else None,
-                }
+                    "first_anchor": (cands[0].get("anchor_used") if cands else None),
+                },
             })
 
-    found = sum(1 for r in results if r["method"] != "none")
-    not_found = len(results) - found
-    avg_conf = round(sum(r["confidence"] for r in results) / len(results), 4) if results else 0.0
-
-    return {
-        "summary": {"found": found, "not_found": not_found, "avg_confidence": avg_conf},
-        "results": results,
+    summary = {
+        "found": sum(1 for r in results if r["method"] != "none"),
+        "not_found": sum(1 for r in results if r["method"] == "none"),
+        "avg_confidence": round(sum(r["confidence"] for r in results) / max(1, len(results)), 4),
     }
+
+    return {"summary": summary, "results": results}
