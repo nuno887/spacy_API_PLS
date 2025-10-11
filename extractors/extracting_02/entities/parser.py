@@ -287,15 +287,18 @@ def parse(text: str, nlp):
             # No titles → treat this ORG as classic taxonomy only (no series)
             continue
 
-        # Use existing item segmentation in this org-scoped gap
+        # Use existing item segmentation in this org-scoped gap >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+       # Use existing item segmentation in this org-scoped gap
         candidates = []
-        for s_char, e_char in find_item_char_spans(text, region_start, region_end, set(boundary_starts)):
+        for s_char, e_char in find_item_char_spans(
+            text, region_start, region_end, set(boundary_starts)
+        ):
             if s_char < e_char:
                 candidates.append((s_char, e_char))
         print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: candidates_found={len(candidates)}")
 
-        # Filter out heading-like blocks by inspecting the first line
-        series_items = []
+        # Filter out heading-like blocks unless the first line is a title
+        kept_blocks: list[tuple[int, int]] = []
         for s_char, e_char in candidates:
             first_ln = _first_nonblank_line(text, s_char, e_char)
             if not first_ln:
@@ -304,26 +307,49 @@ def parse(text: str, nlp):
             is_title = any(i == 0 for i, j, k in title_matcher(d_first)) or bool(TITLE_LINE_RE.search(first_ln))
             if (not is_title) and _is_heading_like_line(first_ln):
                 continue
-            series_items.append({
-                "text": clean_item_text(text[s_char:e_char]),
-                "span": {"start": s_char, "end": e_char},
-            })
+            kept_blocks.append((s_char, e_char))
 
-        print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: items_kept={len(series_items)}")
+        # Inline-split each kept block on new titles (prevents 3/2014+4/2014 or 5/2014+6/2014 merging)
+        final_items = []
+        for s_char, e_char in kept_blocks:
+            raw = text[s_char:e_char]
+            cuts = _find_inline_item_boundaries(raw, s_char, nlp)  # uses spaCy matcher + regex fallback
+            if not cuts:
+                final_items.append({
+                    "text": clean_item_text(raw),
+                    "span": {"start": s_char, "end": e_char}
+                })
+                continue
+            prev = s_char
+            for cut in cuts:
+                if prev < cut:
+                    final_items.append({
+                        "text": clean_item_text(text[prev:cut]),
+                        "span": {"start": prev, "end": cut}
+                    })
+                prev = cut + 1
+            if prev < e_char:
+                final_items.append({
+                    "text": clean_item_text(text[prev:e_char]),
+                    "span": {"start": prev, "end": e_char}
+                })
 
-        if series_items:
+        print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: items_kept={len(final_items)}")
+
+        if final_items:
             # Label the section with the ORG’s own header (first line)
             org_header_text = text[osp.start_char:osp.end_char]
             org_label = _org_display_name(org_header_text)
-            print(f"[SERIES APPEND] ORG {osp.start_char}-{osp.end_char}: label='{org_label}', items={len(series_items)}")
+            print(f"[SERIES APPEND] ORG {osp.start_char}-{osp.end_char}: label='{org_label}', items={len(final_items)}")
             series_sections.append({
                 "path": [org_label],
                 "surface": [org_label],
                 "span": {"start": region_start, "end": region_end},
-                "items": series_items,
+                "items": final_items,
                 "org_span": {"start": osp.start_char, "end": osp.end_char},
             })
 
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         # Merge series sections alongside taxonomy leaves
     sections_tree.extend(series_sections)
 
