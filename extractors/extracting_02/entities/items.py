@@ -1,5 +1,7 @@
 import re
 from typing import List, Tuple, Iterable
+import spacy
+from spacy.matcher import Matcher
 from .constants import (
     DOT_LEADER_LINE_RE,
     DOT_LEADER_TAIL_RE,
@@ -9,6 +11,71 @@ from .constants import (
 )
 from .normalization import normalize_text_offsetsafe, strip_diacritics
 from .org_detection import _is_all_caps_line, _starts_with_starter
+
+_TITLE_MATCHER = None
+
+TITLE_LINE_RE = re.compile(
+    r"""(?xi)
+    \b(?:acordo|contrato)\s+coletiv\w+\s+de\s+trabalho.*?
+    (?:n[\.\º°]?\s*o?)?\s*\d+\s*/\s*\d{2,4}\s*:?\s*\Z
+    """
+)
+
+def build_title_matcher(nlp) -> Matcher:
+    """
+    Build a token-based matcher for instrument title (no global cache). 
+    """
+    m = Matcher(nlp.vocab)
+    
+    def _type(pattern_words):
+        return [{"LOWER": w} for w in pattern_words]
+    
+    # Allowed instrument "Types"
+
+    TYPES = [
+        _type(["acordo", "coletivo", "de", "trabalho"]),
+        _type(["contrato", "coletivo", "de", "trabalho"]),
+        _type(["acordo", "de", "empresa"]),
+        _type(["acordo", "de", "adesão"]),
+        _type(["acordo", "de", "adesao"]),
+        _type(["aditamento"]),
+    ]
+
+    # Optional "nº / n.º / n. / n o" marker (very tolerant)
+    NUM_MARKER = [
+            [{"LOWER": {"IN": ["n", "nº", "n.º", "n.o", "n."]}}],
+            [{"LOWER": "n"}, {"IS_PUNCT": True, "OP": "?"}, {"LOWER": {"IN": ["o", "º"]}, "OP": "?"}],
+            [],  # completely absent is OK
+        ]
+
+        # number "/" year (+ optional ":" at end)
+    NUM_YEAR_TAIL = [
+            {"LIKE_NUM": True},
+            {"ORTH": "/"},
+            {"LIKE_NUM": True},       # 2–4 digits ok
+            {"ORTH": ":", "OP": "?"}, # optional colon
+        ]
+    NUM_YEAR_TAIL_SINGLE = [
+    {"TEXT": {"REGEX": r"^\d+/\d{2,4}:?$"}},  # e.g. "1/2014" or "1/2014:"
+        ]
+
+    pid = 0
+    for t in TYPES:
+        for marker in NUM_MARKER:
+            head = t + [{"IS_PUNCT": True, "OP": "*"}, *marker, {"IS_SPACE": True, "OP": "*"}]
+
+            # variant A: multi-token  number "/" year [ ":" ]
+            mA = head + NUM_YEAR_TAIL
+            m.add(f"TITLE_{pid}", [mA]); pid += 1
+
+            # variant B: single-token "1/2014" or "1/2014:"
+            mB = head + NUM_YEAR_TAIL_SINGLE
+            m.add(f"TITLE_{pid}", [mB]); pid += 1
+
+
+    return m
+
+
 
 
 def _looks_like_item_start(ln: str) -> bool:
@@ -53,14 +120,25 @@ def clean_item_text(raw: str) -> str:
     return raw
 
 
-def _find_inline_item_boundaries(item_text: str, abs_start_char: int) -> List[int]:
+def _find_inline_item_boundaries(item_text: str, abs_start_char: int, nlp=None) -> List[int]:
     boundaries: List[int] = []
     s = item_text
     for m in re.finditer(r'\.(?:\s+)', s):
         j = m.start()
         # Skip any whitespace (including newlines) and quote-like characters before checking next token
         tail = s[m.end():].lstrip(' \t\r\n"\'\u201c\u201d\u00ab\u00bb')
-        if _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
+
+        # Hard bouncary if the *next line* starts with a title per Spacy matcher
+        next_ln = tail.splitlines()[0] if tail else ""
+        hard_cut = False
+        if nlp is not None and next_ln:
+            matcher = build_title_matcher(nlp)
+            print("items.py - Lenght of matcher", len(matcher))
+            print("items.py - id(nlp.vocab):", id(nlp.vocab))
+            doc_next = nlp.make_doc(next_ln)
+            # treat as title only if match starts at position 0
+            hard_cut = any(i == 0 for i, j, k in matcher(doc_next)) or bool(TITLE_LINE_RE.search(next_ln))
+        if hard_cut or _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
             boundaries.append(abs_start_char + j + 1)
     return boundaries
 

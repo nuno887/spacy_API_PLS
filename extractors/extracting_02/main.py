@@ -1,32 +1,44 @@
 import spacy
-from entities import parse, parse_sumario_and_body_bundle, print_results, print_payload_summary
-import sys
-print(sys.version)
-
-from entities import parse_sumario_and_body_bundle
+from entities import parse, parse_sumario_and_body_bundle
+from entities.debug_print import print_results, print_payload_summary
 from body_extraction import run_extraction
 from body_extraction.debug_print import print_report  # optional
 
-nlp = spacy.load("pt_core_news_lg", disable=["ner", "tagger", "parser", "lemmatizer"])
-nlp.add_pipe("sentencizer", first=True, config={"punct_chars": [".", "!", "?", ";", ":"]})
+
+def build_nlp():
+    # Load a lightweight PT pipeline without heavy components
+    nlp = spacy.load("pt_core_news_lg", disable=["ner", "tagger", "parser", "lemmatizer"])
+    # Ensure sentence boundaries exist (needed by expand_to_sentence)
+    if "sentencizer" not in nlp.pipe_names:
+        nlp.add_pipe("sentencizer", first=True, config={"punct_chars": [".", "!", "?", ";", ":"]})
+    return nlp
+
+
 if __name__ == "__main__":
     with open("sample_input_01.txt", "r", encoding="utf-8") as f:
         text = f.read()
 
-    # If you want just the sumário parse:
-    doc, sections_tree = parse(text, nlp)
-    print_results(doc, sections_tree)
+    nlp = build_nlp()
+    # nlp.max_length = max(nlp.max_length, len(text) + 1000)  # optional safety for long docs
 
-    # Or the full bundle (sumário/body split + linking):
+    # -------- Split first (Sumário / Body) --------
     payload, sumario_text, body_text, _ = parse_sumario_and_body_bundle(text, nlp)
+
+    # -------- Debug: sections only on Sumário slice (print absolute offsets via 'offset') --------
+    sum_start = payload["sumario"]["span"]["start"]
+    sum_doc, sum_sections = parse(sumario_text, nlp)
+    print_results(sum_doc, sum_sections, offset=sum_start)
+
+    # -------- Bundle summary (Sumário + Body + relations) --------
     print_payload_summary(payload, save_path="sumario_body_payload.json")
 
+    # -------- Body extraction / alignment --------
     sections = payload["sumario"]["sections"]
     rels = payload.get("relations_org_to_org", [])
 
-    print(f"Body_text:<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< {body_text}")
-
+    # Important: create body_doc via nlp(...) so sentencizer runs
     report = run_extraction(body_text, sections, rels, nlp)
     print_report(report, body_text, show_full=True)
 
-    # print(payload)  # or handle as needed
+    # (Optional) Avoid dumping full body in console:
+    # print(f"Body preview: {body_text[:400]!r} ...")

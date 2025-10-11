@@ -2,11 +2,12 @@ import json
 
 
 
-def print_results(doc, sections_tree):
+def print_results(doc, sections_tree, offset: int = 0):
     print("\n=== ORG HEADERS ===")
     for ent in doc.ents:
         if ent.label_ == "ORG":
-            print(f"[ORG] '{ent.text}' @{ent.start_char}:{ent.end_char}")
+            print(f"[ORG] '{ent.text}' @{ent.start_char+offset}:{ent.end_char+offset}")
+    
 
     print("\n=== SECTIONS (leaf nodes) ===")
     for sect in sections_tree:
@@ -15,11 +16,11 @@ def print_results(doc, sections_tree):
         span = sect["span"]
         print(f"- PATH: {path}")
         print(f"  SURF: {surface}")
-        print(f"  SPAN: {span['start']}..{span['end']}")
+        print(f"  SPAN: {span['start']+offset}..{span['end']+offset}")
         if sect["items"]:
             print(f"  ITEMS ({len(sect['items'])}):")
             for i, it in enumerate(sect["items"], 1):
-                print(f"    {i:02d}. {it['text']}  @{it['span']['start']}..{it['span']['end']}")
+                print(f"    {i:02d}. {it['text']}  @{it['span']['start']+offset}..{it['span']['end']+offset}")
         else:
             print("  ITEMS (0)")
         print()

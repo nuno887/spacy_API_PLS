@@ -1,14 +1,31 @@
 from typing import List, Dict, Tuple
 from collections import defaultdict
+import re
+
 from spacy.tokens import Span
 from spacy.util import filter_spans
+
 from .taxonomy import build_heading_matcher
 from .headings import scan_headings
-from .org_detection import find_org_spans
-from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries
+from .org_detection import find_org_spans, _is_all_caps_line, _starts_with_starter
+from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries, build_title_matcher
 from .taxonomy import TAXONOMY
 from .taxonomy import Node
-from .normalization import normalize_heading_text
+from .normalization import normalize_heading_text, strip_diacritics
+
+
+TITLE_LINE_RE = re.compile(
+    r"""(?xi)                       # verbose, case-insensitive
+    \b
+    (?:acordo|contrato)             # Acordo|Contrato
+    \s+coletiv\w+\s+de\s+trabalho   # Coletivo[a]? de Trabalho (OCR safe)
+    .*?
+    (?:n[\.\º°]?\s*o?)?             # optional n.º / nº / n. o
+    \s*\d+\s*/\s*\d{2,4}            # 1/2014, 12/14, etc.
+    \s*:?
+    \s*\Z
+    """
+)
 
 
 def _dedup_spans(spans: List[Span]) -> List[Span]:
@@ -58,7 +75,7 @@ def parse(text: str, nlp):
     i = 0
     while i < len(hits):
         hit = hits[i]
-        # Using the same normalization that built alias_to_nodes (lower + strip deacritics + trim colon + squeeze spaces)
+        # Using the same normalization that built alias_to_nodes
         key_norm = normalize_heading_text(hit.surface)
         candidates = alias_to_nodes.get(key_norm, [])
         chosen = None
@@ -111,11 +128,11 @@ def parse(text: str, nlp):
                 continue
             item_spans.append(Span(doc, ch.start, ch.end, label=f"Item{leaf['path'][-1]}"))
 
-    # refine items with inline splits
+    # refine items with inline splits (pass nlp so splitter can use spaCy matcher)
     refined_item_spans: List[Span] = []
     for it_sp in item_spans:
         raw = text[it_sp.start_char:it_sp.end_char]
-        splits = _find_inline_item_boundaries(raw, it_sp.start_char)
+        splits = _find_inline_item_boundaries(raw, it_sp.start_char, nlp)
         if not splits:
             refined_item_spans.append(it_sp)
             continue
@@ -176,7 +193,7 @@ def parse(text: str, nlp):
     sections_tree = deduped
 
     # -------------------------------------------------------------
-    # NEW: detect "instrument series" directly under each ORG block
+    # NEW: detect series of instruments directly under each ORG block
     #      (covers the shape: ORG banner -> list of instruments)
     # -------------------------------------------------------------
     # Boundaries that terminate an instrument-series region
@@ -188,35 +205,126 @@ def parse(text: str, nlp):
                 return b
         return len(text)
 
+    def _org_display_name(raw: str) -> str:
+        # First non-blank line, trim trailing punctuation/dashes/colon
+        for ln in raw.splitlines():
+            t = ln.strip()
+            if t:
+                return t.rstrip(" :—–-").strip()
+        return raw.strip()
+
+    # Reject obvious heading blocks (not items) by inspecting the first non-blank line
+    def _is_heading_like_line(line: str) -> bool:
+        # (a) ORG header style (starter + ALL CAPS)
+        if _starts_with_starter(line) and _is_all_caps_line(line):
+            return True
+        # (b) Known taxonomy heading alias
+        norm = normalize_heading_text(line.rstrip(":"))
+        if norm in alias_to_nodes:
+            return True
+        # (c) Colon but no number/year token on that line
+        if ":" in line and not re.search(r'n[\.\º°]?\s*o?\s*\d+\s*/\s*\d{2,4}', line, re.IGNORECASE):
+            return True
+        # (d) Very specific denylist (per your examples)
+        dl = {"direcao regional do trabalho", "direção regional do trabalho",
+              "regulamentacao do trabalho", "regulamentação do trabalho"}
+        base = strip_diacritics(line).strip().lower().rstrip(":")
+        if base in dl:
+            return True
+        return False
+
+    def _first_nonblank_line(full: str, s: int, e: int) -> str:
+        frag = full[s:e]
+        for ln in frag.splitlines():
+            if ln.strip():
+                return ln.strip()
+        return ""
+
+    # spaCy matcher for explicit title lines
+    title_matcher = build_title_matcher(nlp)
+    assert len(title_matcher) > 0, "Title matcher unexpectedly empty - parser.py"
+    print("parser.py - Lenght of title_matcher",len(title_matcher))
+    print("parser.py - id(nlp.vocab):", id(nlp.vocab))
+
     series_sections = []
+
+    print(f"[SERIES DBG] boundary_starts={sorted(boundary_starts)[:10]}... len={len(boundary_starts)}")  
+
     for osp in org_spans:
         # Scan AFTER the org header block, up to the next boundary (next org/heading/EOF)
         region_start = osp.end_char
-        region_end = _next_boundary_after(osp.start_char)
+        region_end = _next_boundary_after(osp.end_char)  # IMPORTANT: after end_char
+        print(f"[SERIES DBG] visit ORG {osp.start_char}-{osp.end_char} -> region {region_start}-{region_end} (len={region_end-region_start})")
+
         if region_start >= region_end:
+            print(f"[SERIES DBG] skip ORG {osp.start_char}-{osp.end_char}: empty region")
+            continue
+
+        region_text = text[region_start:region_end]
+        proto_lines = [ln.strip() for ln in region_text.splitlines() if ln.strip()]
+        print(f"[SERIES DBG] region first lines: {proto_lines[:2]}")
+
+        # --- Pre-check: require at least one explicit title line in the ORG gap ---
+        has_title = False
+        dbg_matches = []
+        for idx, ln in enumerate(region_text.splitlines()):
+            s = ln.strip()
+            if not s:
+                continue
+            d = nlp.make_doc(s)
+            hit_matcher = any(i == 0 for i, j, k in title_matcher(d))
+            # 2) fallback: string regex
+            hit_regex = bool(TITLE_LINE_RE.search(s))
+            if hit_matcher or hit_regex:
+                has_title = True
+                dbg_matches.append((idx, s))
+
+        print(f"[SERIES CHECK] ORG {osp.start_char}-{osp.end_char}: titles_found={len(dbg_matches)}")
+        for i, s in dbg_matches[:6]:
+            print(f"   [title@line {i}] {s}")
+
+        if not has_title:
+            # No titles → treat this ORG as classic taxonomy only (no series)
             continue
 
         # Use existing item segmentation in this org-scoped gap
-        series_items = []
+        candidates = []
         for s_char, e_char in find_item_char_spans(text, region_start, region_end, set(boundary_starts)):
-            if s_char >= e_char:
+            if s_char < e_char:
+                candidates.append((s_char, e_char))
+        print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: candidates_found={len(candidates)}")
+
+        # Filter out heading-like blocks by inspecting the first line
+        series_items = []
+        for s_char, e_char in candidates:
+            first_ln = _first_nonblank_line(text, s_char, e_char)
+            if not first_ln:
+                continue
+            d_first = nlp.make_doc(first_ln)
+            is_title = any(i == 0 for i, j, k in title_matcher(d_first)) or bool(TITLE_LINE_RE.search(first_ln))
+            if (not is_title) and _is_heading_like_line(first_ln):
                 continue
             series_items.append({
                 "text": clean_item_text(text[s_char:e_char]),
                 "span": {"start": s_char, "end": e_char},
             })
 
+        print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: items_kept={len(series_items)}")
+
         if series_items:
-            # Lightweight section entry for instrument series
+            # Label the section with the ORG’s own header (first line)
+            org_header_text = text[osp.start_char:osp.end_char]
+            org_label = _org_display_name(org_header_text)
+            print(f"[SERIES APPEND] ORG {osp.start_char}-{osp.end_char}: label='{org_label}', items={len(series_items)}")
             series_sections.append({
-                "path": ["Instrumentos"],                 # new section kind
-                "surface": ["Instrumentos"],              # display label
+                "path": [org_label],
+                "surface": [org_label],
                 "span": {"start": region_start, "end": region_end},
                 "items": series_items,
-                "org_span": {"start": osp.start_char, "end": osp.end_char},  # optional context
+                "org_span": {"start": osp.start_char, "end": osp.end_char},
             })
 
-    # Merge series sections alongside taxonomy leaves
+        # Merge series sections alongside taxonomy leaves
     sections_tree.extend(series_sections)
 
     return doc, sections_tree

@@ -103,10 +103,10 @@
       },
       {
         "path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "surface_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "span": {
           "start": 64,
@@ -157,37 +157,6 @@
               "start": 2342,
               "end": 2407
             }
-          }
-        }
-      },
-      {
-        "path": [
-          "Instrumentos"
-        ],
-        "surface_path": [
-          "Instrumentos"
-        ],
-        "span": {
-          "start": 1964,
-          "end": 2020
-        },
-        "items": [
-          {
-            "text": "Direção Regional do Trabalho Regulamentação do Trabalho",
-            "span": {
-              "start": 1964,
-              "end": 2020
-            }
-          }
-        ],
-        "org_context": {
-          "sumario_org": {
-            "surface_raw": "SECRETARIA REGIONAL DA EDUCAÇÃO E RECURSOS HUMANOS\n\n",
-            "span": {
-              "start": 1912,
-              "end": 1964
-            },
-            "canonical_key": "SECRETARIAREGIONALDAEDUCAÇÃOERECURSOSHUMANOS"
           }
         }
       }
@@ -248,12 +217,12 @@
         "item_text": "Portaria de Extensão n.º 7/2014 - Portaria de Extensão do Contrato Coletivo entre a Associação Portuguesa das Empresas do Setor Elétrico e Eletrónico e a FETESE Federação dos Sindicatos da Indústria e Serviços e Outros - Alteração Salarial"
       },
       {
-        "section_key": "Instrumentos",
+        "section_key": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO",
         "section_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "surface_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "section_span": {
           "start": 64,
@@ -266,12 +235,12 @@
         "item_text": "Acordo Coletivo de Trabalho n.º 1/2014: Acordo Coletivo celebrado entre a Presidência do Governo Regional, o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira e a FESAP, Federação de Sindicatos da Administração Pública e de Entidades com Fins Públicos"
       },
       {
-        "section_key": "Instrumentos",
+        "section_key": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO",
         "section_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "surface_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "section_span": {
           "start": 64,
@@ -284,12 +253,12 @@
         "item_text": "Acordo Coletivo de Trabalho n.º 2/2014: Acordo celebrado entre a Vice-Presidência do Governo Regional e o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira e a FESAP, Federação de Sindicatos da Administração Pública e de Entidades com Fins Públicos"
       },
       {
-        "section_key": "Instrumentos",
+        "section_key": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO",
         "section_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "surface_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "section_span": {
           "start": 64,
@@ -302,12 +271,12 @@
         "item_text": "Acordo Coletivo de Trabalho n.º 3/2014: Acordo Coletivo celebrado entre a Secretaria Regional dos Assuntos Sociais e o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira e a FESAP, Federação de Sindicatos da Administração Pública e de Entidades com Fins Públicos. Acordo Coletivo de Trabalho n.º 4/2014: Acordo Coletivo celebrado entre a Secretaria Regional do Plano e Finanças e o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira, a FESAP, Federação de Sindicatos da Administração Pública e de Entidades com Fins Públicos, o Sindicato dos Quadros Técnicos do Estado e Entidades com Fins Públicos, e o Sindicato dos Trabalhadores dos Impostos"
       },
       {
-        "section_key": "Instrumentos",
+        "section_key": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO",
         "section_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "surface_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "section_span": {
           "start": 64,
@@ -318,34 +287,16 @@
           "end": 1911
         },
         "item_text": "Acordo Coletivo de Trabalho n.º 5/2014: Acordo Coletivo celebrado entre a Secretaria Regional da Educação e Recursos Humanos e o Sindicato dos Trabalhadores da Função Pública da Região Autónoma da Madeira e a FESAP, Federação de Sindicatos da Administração Pública e de Entidades com Fins Públicos. Acordo Coletivo de Trabalho n.º 6/2014: Acordo Coletivo celebrado entre o Instituto de Desenvolvimento Regional, IP-RAM e a FESAP, Federação de Sindicatos da Administração Pública e de Entidades com Fins Públicos e o Sindicato dos Quadros Técnicos do Estado e Entidades com Fins Públicos"
-      },
-      {
-        "section_key": "Instrumentos",
-        "section_path": [
-          "Instrumentos"
-        ],
-        "surface_path": [
-          "Instrumentos"
-        ],
-        "section_span": {
-          "start": 1964,
-          "end": 2020
-        },
-        "item_span": {
-          "start": 1964,
-          "end": 2020
-        },
-        "item_text": "Direção Regional do Trabalho Regulamentação do Trabalho"
       }
     ],
     "section_ranges": [
       {
-        "section_key": "Instrumentos",
+        "section_key": "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO",
         "section_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "surface_path": [
-          "Instrumentos"
+          "ADMINISTRAÇÃO PÚBLICA REGIONAL - RELAÇÕES COLETIVASDE TRABALHO"
         ],
         "heading_span": {
           "start": 64,
@@ -353,23 +304,6 @@
         },
         "content_range": {
           "start": 1912,
-          "end": 1964
-        }
-      },
-      {
-        "section_key": "Instrumentos",
-        "section_path": [
-          "Instrumentos"
-        ],
-        "surface_path": [
-          "Instrumentos"
-        ],
-        "heading_span": {
-          "start": 1964,
-          "end": 2020
-        },
-        "content_range": {
-          "start": 2020,
           "end": 2020
         }
       },

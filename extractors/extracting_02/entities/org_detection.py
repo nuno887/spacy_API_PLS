@@ -46,7 +46,7 @@ def _starts_with_starter(ln: str) -> bool:
     if not t:
         return False
     # split on whitespace + hyphen/en-dash/em-dash + light punctuation
-    first_token = re.split(r'[\s\---:,;./]+', t, 1)[0]
+    first_token = re.split(r'[\s\-–—:,;./]+', t, 1)[0]
     norm_first = strip_diacritics(first_token).upper().replace(" ", "").replace("-", "")
     return any(norm_first.startswith(s) for s in STARTERS_NORM)
 
