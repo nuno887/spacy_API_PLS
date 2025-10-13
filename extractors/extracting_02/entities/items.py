@@ -24,6 +24,19 @@ TITLE_LINE_RE = re.compile(
 )
 _NUMERIC_NOISE_STRIP_RE = re.compile(r'[\s\.\-/,·•…]+')
 
+ELLIPSIS_NOISE_RE = re.compile(r'[\s\u2026\.·•]+')  # spaces, ellipsis, dots, middots, bullets
+
+def is_ellipsis_only_item(txt: str) -> bool:
+    """
+    True if, after removing whitespace and common dot-leader glyphs, nothing remains.
+    Filters items like '...', '…', '....', '· · ·', etc.
+    """
+    if not txt:
+        return True
+    core = ELLIPSIS_NOISE_RE.sub('', txt)
+    return core == ""
+
+
 def build_title_matcher(nlp) -> Matcher:
     """
     Build a token-based matcher for instrument title (no global cache). 
@@ -61,6 +74,8 @@ def build_title_matcher(nlp) -> Matcher:
     NUM_YEAR_TAIL_SINGLE = [
     {"TEXT": {"REGEX": r"^\d+/\d{2,4}:?$"}},  # e.g. "1/2014" or "1/2014:"
         ]
+    
+    
 
     pid = 0
     for t in TYPES:

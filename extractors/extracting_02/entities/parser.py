@@ -8,7 +8,7 @@ from spacy.util import filter_spans
 from .taxonomy import build_heading_matcher
 from .headings import scan_headings
 from .org_detection import find_org_spans, _is_all_caps_line, _starts_with_starter
-from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries, build_title_matcher, is_numeric_only_item
+from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries, build_title_matcher, is_numeric_only_item, is_ellipsis_only_item
 from .taxonomy import TAXONOMY
 from .taxonomy import Node
 from .normalization import normalize_heading_text, strip_diacritics
@@ -166,7 +166,7 @@ def _assemble_sections_tree_from_leaves(text: str, doc, leaves, ents: list[Span]
                     continue
                 seen_item_spans_per_leaf[lid].add(key)
                 txt_clean = clean_item_text(sp.text)
-                if is_numeric_only_item(txt_clean):
+                if is_numeric_only_item(txt_clean) or is_ellipsis_only_item(txt_clean):
                     continue
                 items_per_leaf[lid].append({
                     "text": txt_clean,
@@ -322,19 +322,19 @@ def _detect_series_sections_under_orgs(
             cuts = _find_inline_item_boundaries(raw, s_char, nlp)
             if not cuts:
                 txt = clean_item_text(raw)
-                if not is_numeric_only_item(txt):
+                if not (is_numeric_only_item(txt) or is_ellipsis_only_item(txt)):
                     final_items.append({"text": txt, "span": {"start": s_char, "end": e_char}})
                 continue
             prev = s_char
             for cut in cuts:
                 if prev < cut:
                     txt = clean_item_text(text[prev:cut])
-                    if not is_numeric_only_item(txt):
+                    if not (is_numeric_only_item(txt) or is_ellipsis_only_item(txt)):
                         final_items.append({"text": txt, "span": {"start": prev, "end": cut}})
                 prev = cut + 1
             if prev < e_char:
                 txt = clean_item_text(text[prev:e_char])
-                if not is_numeric_only_item(txt):
+                if not (is_numeric_only_item(txt) or is_ellipsis_only_item(txt)):
                     final_items.append({"text": txt, "span": {"start": prev, "end": e_char}})
 
         print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: items_kept={len(final_items)}")
@@ -387,5 +387,8 @@ def parse(text: str, nlp):
         text, nlp, doc, leaves, org_spans, alias_to_nodes
     )
     sections_tree.extend(series_sections)
+
+    # Drop sections that ended up with no items (e.g., only ellipsis was present)
+    sections_tree = [s for s in sections_tree if s.get("items")]
 
     return doc, sections_tree
