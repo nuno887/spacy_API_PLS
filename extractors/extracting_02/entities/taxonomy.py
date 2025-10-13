@@ -38,6 +38,18 @@ L1_NODES = [
         "Avisos de cessação da vigência de convenções coletivas",
         "Avisos de cessacao da vigencia de convencoes coletivas:",
         "Avisos de cessacao da vigencia de convencoes coletivas"
+    ]),
+    Node("Convocatorias", 1, [
+        "Convocatórias:",
+        "Convocatórias",
+        "Convocatorias:",
+        "Convocatorias"
+        ]),
+    Node("OrganizacoesTrabalho", 1, [
+        "Organizações do Trabalho:",
+        "Organizações do Trabalho",
+        "Oranizacoes do Trabalho:",
+        "Organizacoes do Trabalho"
     ])
 ]
 

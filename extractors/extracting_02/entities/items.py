@@ -14,6 +14,8 @@ from .org_detection import _is_all_caps_line, _starts_with_starter
 
 _TITLE_MATCHER = None
 
+INLINE_DOTLEADER_SPLIT_RE = re.compile(r'(?:[.\u2026·]{5,})\s*(?:\d{1,3})?\s*')
+
 TITLE_LINE_RE = re.compile(
     r"""(?xi)
     \b(?:acordo|contrato)\s+coletiv\w+\s+de\s+trabalho.*?
@@ -116,31 +118,43 @@ def clean_item_text(raw: str) -> str:
     raw = _truncate_item_before_inline_org(raw)
     raw = raw.replace("-\n", "").replace("­\n", "")
     raw = re.sub(r'\s*\n\s*', ' ', raw).strip()
+
+    # NEW: kill inline dot-leader runs (..... / ……) + optional small page number
+    raw = re.sub(r'(?:[.\u2026·]{5,})\s*(?:\d{1,3})?\s*', ' ', raw)
+
+
     raw = re.sub(r'\.*\s*$', '', raw).strip()
     return raw
 
 
 def _find_inline_item_boundaries(item_text: str, abs_start_char: int, nlp=None) -> List[int]:
+    """
+    Return absolute cut positions inside an already-detected item block.
+    We split when:
+      - a period is followed by whitespace and the next token looks like a new item or inline ORG header;
+      - an inline dot-leader run (..... / ……) appears and the tail looks like a new item or inline ORG header.
+    """
     boundaries: List[int] = []
     s = item_text
+
+    # Rule A: split on ". " when the tail looks like a fresh item or inline ORG
     for m in re.finditer(r'\.(?:\s+)', s):
         j = m.start()
-        # Skip any whitespace (including newlines) and quote-like characters before checking next token
         tail = s[m.end():].lstrip(' \t\r\n"\'\u201c\u201d\u00ab\u00bb')
-
-        # Hard bouncary if the *next line* starts with a title per Spacy matcher
-        next_ln = tail.splitlines()[0] if tail else ""
-        hard_cut = False
-        if nlp is not None and next_ln:
-            matcher = build_title_matcher(nlp)
-            print("items.py - Lenght of matcher", len(matcher))
-            print("items.py - id(nlp.vocab):", id(nlp.vocab))
-            doc_next = nlp.make_doc(next_ln)
-            # treat as title only if match starts at position 0
-            hard_cut = any(i == 0 for i, j, k in matcher(doc_next)) or bool(TITLE_LINE_RE.search(next_ln))
-        if hard_cut or _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
+        if _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
             boundaries.append(abs_start_char + j + 1)
+
+    # Rule B: split on inline dot-leader separators (..... [digits] ) when the tail looks fresh
+    for m in INLINE_DOTLEADER_SPLIT_RE.finditer(s):
+        cut = abs_start_char + m.start()  # cut *at* the start of the dot-leader run
+        tail = s[m.end():].lstrip(' \t\r\n"\'\u201c\u201d\u00ab\u00bb')
+        if _looks_like_item_start(tail) or _looks_like_inline_org_start(tail):
+            boundaries.append(cut)
+
+    # Dedup + sort to keep order stable
+    boundaries = sorted(set(boundaries))
     return boundaries
+
 
 
 def find_item_char_spans(

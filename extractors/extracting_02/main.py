@@ -12,31 +12,38 @@ import json
 
 def pretty_sections(sections):
     print("\n=== SECTIONS (as passed to run_extraction) ===")
-    for i, s in enumerate(sections, 1):
-        path = " > ".join(s.get("path", []))
-        span = s.get("span", {})
-        org_span = s.get("org_span")
-        items = s.get("items", [])
-        org_ctx = s.get("org_context", {})
-        org_name = None
-        if org_ctx and org_ctx.get("sumario_org"):
-            org_name = org_ctx["sumario_org"]["surface_raw"].splitlines()[0].strip()
+    for idx, s in enumerate(sections, 1):
+        path = " > ".join(s.get("path", [])) or "(unknown)"
+        org = ""
+        oc = s.get("org_context")
+        if isinstance(oc, dict):
+            so = (oc.get("sumario_org") or {})
+            if so.get("surface_raw"):
+                org = so["surface_raw"].splitlines()[0].strip()
+        if not org and "org_span" in s:
+            org = (s.get("surface") or s.get("surface_path") or s.get("path") or [""])[0]
 
-        print(f"[{i:02d}] PATH: {path}")
-        if org_name:
-            print(f"     ORG: {org_name}")
-        if org_span:
-            print(f"  org_span: {org_span['start']}..{org_span['end']}")
-        print(f"     span: {span.get('start','?')}..{span.get('end','?')}")
+        span = s.get("span", {})
+        print(f"[{idx:02d}] PATH: {path}")
+        if org:
+            print(f"     ORG: {org}")
+        print(f"     span: {span.get('start')}..{span.get('end')}")
+        items = s.get("items", [])
         print(f"     items: {len(items)}")
-        # show first line of each item, truncated
+
         for j, it in enumerate(items, 1):
-            txt = (it.get("text") or "").strip().splitlines()[0]
-            if len(txt) > 120:
-                txt = txt[:117] + "..."
-            istart = it.get("span", {}).get("start", "?")
-            iend = it.get("span", {}).get("end", "?")
-            print(f"        {j:02d}. {txt}  @{istart}..{iend}")
+            txt = (it.get("text") or "")
+            first_line = next((ln.strip() for ln in txt.splitlines() if ln.strip()), "")
+            start = (it.get("span") or {}).get("start")
+            end   = (it.get("span") or {}).get("end")
+
+            if not first_line:
+                print(f"        {j:02d}. [EMPTY ITEM]  @{start}..{end}")
+                continue
+
+            preview = (first_line[:120] + ("..." if len(first_line) > 120 else ""))
+            print(f"        {j:02d}. {preview}  @{start}..{end}")
+
         print()
 
 def pretty_rels(rels):
@@ -69,7 +76,7 @@ def build_nlp():
 
 
 if __name__ == "__main__":
-    with open("sample_input_all.txt", "r", encoding="utf-8") as f:
+    with open("sample_input_all_01.txt", "r", encoding="utf-8") as f:
         text = f.read()
 
     nlp = build_nlp()
