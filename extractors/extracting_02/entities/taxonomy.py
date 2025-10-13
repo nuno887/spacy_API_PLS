@@ -54,6 +54,12 @@ L1_NODES = [
     Node("Estatutos:", 1, [
         "Estatutos:",
         "Estatutos"
+    ]),
+    Node("EleicaoRepresentantes", 1, [
+        "Eleição de Representantes:",
+        "Eleição de Representantes",
+        "Eleicao de Representantes:",
+        "Eleicao de Representantes"
     ])
 ]
 
