@@ -41,14 +41,31 @@ def _norm_org_key(s: str) -> str:
     return "".join(out)
 
 def _starts_with_starter(ln: str) -> bool:
-    #Accent-insensitive, tolerant to spaces/hyphens/fused tokens; prefix match
     t = ln.strip()
     if not t:
         return False
-    # split on whitespace + hyphen/en-dash/em-dash + light punctuation
-    first_token = re.split(r'[\s\-–—:,;./]+', t, 1)[0]
-    norm_first = strip_diacritics(first_token).upper().replace(" ", "").replace("-", "")
-    return any(norm_first.startswith(s) for s in STARTERS_NORM)
+
+    # Accumulate only letters from the beginning, skipping spaces, dash variants, soft hyphen, ZW* chars
+    head_chars = []
+    for ch in t:
+        if ch.isalpha():
+            head_chars.append(ch)
+            continue
+        # skip spacing/dash/format chars commonly produced by OCR or letter-spacing
+        if ch in {" ", "\t", "-", "–", "—", "\u00AD", "\u200B", "\u200C", "\u200D"}:
+            continue
+        # stop at other punctuation/digits once we’ve started reading letters
+        if head_chars:
+            break
+        # if we haven't started letters yet, keep skipping leading punctuation
+        continue
+
+    head = "".join(head_chars)
+    if not head:
+        return False
+
+    norm_head = strip_diacritics(head).upper().replace(" ", "").replace("-", "")
+    return any(norm_head.startswith(s) for s in STARTERS_NORM)
 
 
 # Optional: expose normalized key on spans for downstream comparisons

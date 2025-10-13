@@ -35,9 +35,14 @@ def canonical_org_key(s: str) -> str:
     s = s.upper()
     out = []
     for ch in s:
+        cat = unicodedata.category(ch)
+        if cat in ("Cf", "Cc"):
+            continue
         if ch.isspace():
             continue
         if ch in _PUNCT_ALL:
+            continue
+        if ch.isdigit():
             continue
         out.append(ch)
     return "".join(out)

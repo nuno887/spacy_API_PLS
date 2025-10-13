@@ -22,6 +22,7 @@ TITLE_LINE_RE = re.compile(
     (?:n[\.\º°]?\s*o?)?\s*\d+\s*/\s*\d{2,4}\s*:?\s*\Z
     """
 )
+_NUMERIC_NOISE_STRIP_RE = re.compile(r'[\s\.\-/,·•…]+')
 
 def build_title_matcher(nlp) -> Matcher:
     """
@@ -78,7 +79,15 @@ def build_title_matcher(nlp) -> Matcher:
     return m
 
 
-
+def is_numeric_only_item(txt: str) -> bool:
+    """
+    True if, after stripping whitespace and common separators, the text is only digits.
+    This filters out page-number artifacts like '2  2  1' or '12/13'.
+    """
+    if not txt:
+        return True
+    core = _NUMERIC_NOISE_STRIP_RE.sub('', txt)
+    return core.isdigit() and len(core) > 0
 
 def _looks_like_item_start(ln: str) -> bool:
     raw = normalize_text_offsetsafe(ln).strip()

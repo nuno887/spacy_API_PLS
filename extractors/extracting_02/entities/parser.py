@@ -8,7 +8,7 @@ from spacy.util import filter_spans
 from .taxonomy import build_heading_matcher
 from .headings import scan_headings
 from .org_detection import find_org_spans, _is_all_caps_line, _starts_with_starter
-from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries, build_title_matcher
+from .items import find_item_char_spans, clean_item_text, _find_inline_item_boundaries, build_title_matcher, is_numeric_only_item
 from .taxonomy import TAXONOMY
 from .taxonomy import Node
 from .normalization import normalize_heading_text, strip_diacritics
@@ -39,17 +39,15 @@ def _dedup_spans(spans: List[Span]) -> List[Span]:
     return out
 
 
-def parse(text: str, nlp):
-    doc = nlp(text)
-    _, alias_to_nodes = build_heading_matcher(nlp)
+# --- helpers: headings/leaves -------------------------------------------------
 
+def _scan_heading_leaves(text: str, nlp, alias_to_nodes):
+    """Return (leaves, heading_hits), where leaves carry path/surface/span/text_range."""
     hits = scan_headings(text, alias_to_nodes)
     hits.sort(key=lambda h: h.start_char)
 
     # stack entries: (canonical, level, start, end, surface)
-    stack: List[Tuple[str, int, int, int, str]] = []
-    leaves: List[Dict] = []
-    leaf_seen = set()
+    stack, leaves, leaf_seen = [], [], set()
 
     def close_leaf_if_any(next_start: int):
         if not stack:
@@ -75,7 +73,6 @@ def parse(text: str, nlp):
     i = 0
     while i < len(hits):
         hit = hits[i]
-        # Using the same normalization that built alias_to_nodes
         key_norm = normalize_heading_text(hit.surface)
         candidates = alias_to_nodes.get(key_norm, [])
         chosen = None
@@ -90,7 +87,6 @@ def parse(text: str, nlp):
                 i += 1
                 continue
 
-        # guard: avoid pushing the same heading at the same position twice
         if stack and stack[-1][0] == chosen.canonical and stack[-1][2] == hit.start_char:
             i += 1
             continue
@@ -101,25 +97,28 @@ def parse(text: str, nlp):
         stack.append((chosen.canonical, chosen.level, hit.start_char, hit.end_char, hit.surface))
         i += 1
 
-    # close the last open leaf to EOF
     close_leaf_if_any(len(text))
+    return leaves, hits
 
-    # ORG spans across the whole text
-    org_spans = find_org_spans(doc, text)
-    org_spans.sort(key=lambda sp: sp.start_char)
 
-    # heading leaf spans (for labeling)
-    heading_leaf_spans: List[Span] = []
+# --- helpers: entities from leaves/items -------------------------------------
+
+def _collect_heading_leaf_spans(doc, leaves) -> list[Span]:
+    out = []
     for leaf in leaves:
         ch = doc.char_span(leaf["span"]["start"], leaf["span"]["end"], alignment_mode="expand")
         if ch is None:
             continue
         label = leaf["path"][-1]
-        heading_leaf_spans.append(Span(doc, ch.start, ch.end, label=label))
+        out.append(Span(doc, ch.start, ch.end, label=label))
+    return out
 
-    # collect items within each leaf's text range (classic taxonomy path)
+
+def _segment_items_in_leaves(text: str, leaves, nlp) -> list[Span]:
+    """Return raw item spans (as spaCy Spans) labeled Item{LeafName}."""
+    doc = nlp.make_doc(text)  # cheap tokenization for alignment_mode
     heading_starts = {l["span"]["start"] for l in leaves}
-    item_spans: List[Span] = []
+    item_spans: list[Span] = []
     for leaf in leaves:
         sc, ec = leaf["text_range"]
         for s_char, e_char in find_item_char_spans(text, sc, ec, heading_starts):
@@ -127,61 +126,63 @@ def parse(text: str, nlp):
             if ch is None:
                 continue
             item_spans.append(Span(doc, ch.start, ch.end, label=f"Item{leaf['path'][-1]}"))
+    return item_spans
 
-    # refine items with inline splits (pass nlp so splitter can use spaCy matcher)
-    refined_item_spans: List[Span] = []
-    for it_sp in item_spans:
+
+def _refine_item_spans(text: str, raw_item_spans: list[Span], nlp) -> list[Span]:
+    """Apply inline splits (e.g., dot-leaders, multiple titles on one line)."""
+    doc = nlp.make_doc(text)
+    refined: list[Span] = []
+    for it_sp in raw_item_spans:
         raw = text[it_sp.start_char:it_sp.end_char]
-        splits = _find_inline_item_boundaries(raw, it_sp.start_char, nlp)
-        if not splits:
-            refined_item_spans.append(it_sp)
-            continue
+        cuts = _find_inline_item_boundaries(raw, it_sp.start_char, nlp)
+        if not cuts:
+            refined.append(it_sp); continue
         prev = it_sp.start_char
-        for cut in splits:
+        for cut in cuts:
             ch = doc.char_span(prev, cut, alignment_mode="expand")
             if ch is not None:
-                refined_item_spans.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
+                refined.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
             prev = cut + 1
         ch = doc.char_span(prev, it_sp.end_char, alignment_mode="expand")
         if ch is not None:
-            refined_item_spans.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
+            refined.append(Span(doc, ch.start, ch.end, label=it_sp.label_))
+    return refined
 
-    # finalize entities (ORG + headings + items)
-    all_spans = _dedup_spans(org_spans + heading_leaf_spans + refined_item_spans)
-    all_spans = filter_spans(all_spans)
-    doc.ents = tuple(_dedup_spans(all_spans))
 
-    # build sections_tree with items (taxonomy leaves)
-    sections_tree: List[Dict] = []
-    items_per_leaf: Dict[int, List[Dict]] = defaultdict(list)
-    seen_item_spans_per_leaf: Dict[int, set] = defaultdict(set)
+def _assemble_sections_tree_from_leaves(text: str, doc, leaves, ents: list[Span]) -> list[dict]:
+    """Build sections_tree (taxonomy leaves only), cleaning and dropping numeric-only items."""
+    sections_tree: list[dict] = []
+    items_per_leaf: dict[int, list[dict]] = defaultdict(list)
+    seen_item_spans_per_leaf: dict[int, set] = defaultdict(set)
 
     for leaf in leaves:
         sc, ec = leaf["text_range"]
         lid = id(leaf)
-        for sp in doc.ents:
+        for sp in ents:
             if sp.label_.startswith("Item") and sc <= sp.start_char and sp.end_char <= ec:
                 key = (sp.start_char, sp.end_char)
                 if key in seen_item_spans_per_leaf[lid]:
                     continue
                 seen_item_spans_per_leaf[lid].add(key)
+                txt_clean = clean_item_text(sp.text)
+                if is_numeric_only_item(txt_clean):
+                    continue
                 items_per_leaf[lid].append({
-                    "text": clean_item_text(sp.text),
+                    "text": txt_clean,
                     "span": {"start": sp.start_char, "end": sp.end_char}
                 })
 
-    # dedupe leaves by (path, heading span) and merge items
     tmp = []
     for leaf in leaves:
         tmp.append({
             "path": leaf["path"],
             "surface": leaf["surface"],
             "span": leaf["span"],
-            "items": items_per_leaf.get(id(leaf), [])
+            "items": items_per_leaf.get(id(leaf), []),
         })
 
-    deduped = []
-    seen = {}
+    deduped, seen = [], {}
     for s in tmp:
         key = (tuple(s["path"]), s["span"]["start"], s["span"]["end"])
         if key in seen:
@@ -189,14 +190,27 @@ def parse(text: str, nlp):
         else:
             seen[key] = {**s, "items": list(s["items"])}
             deduped.append(seen[key])
+    return deduped
 
-    sections_tree = deduped
 
-    # -------------------------------------------------------------
-    # NEW: detect series of instruments directly under each ORG block
-    #      (covers the shape: ORG banner -> list of instruments)
-    # -------------------------------------------------------------
+def _detect_series_sections_under_orgs(
+    text: str,
+    nlp,
+    doc,
+    leaves,
+    org_spans: list[Span],
+    alias_to_nodes: dict,
+) -> list[dict]:
+    """
+    Detect sections that are a series of instruments directly under each ORG block:
+      ORG HEADER
+      Title 1:
+      Title 2:
+      ...
+    Returns a list of section dicts shaped like taxonomy leaves, but with path/surface = [ORG label].
+    """
     # Boundaries that terminate an instrument-series region
+    heading_starts = {l["span"]["start"] for l in leaves}
     boundary_starts = sorted(set(heading_starts) | {sp.start_char for sp in org_spans} | {len(text)})
 
     def _next_boundary_after(pos: int) -> int:
@@ -240,22 +254,18 @@ def parse(text: str, nlp):
                 return ln.strip()
         return ""
 
-    # spaCy matcher for explicit title lines
+    # Title detection: spaCy matcher + regex fallback
     title_matcher = build_title_matcher(nlp)
-    assert len(title_matcher) > 0, "Title matcher unexpectedly empty - parser.py"
-    print("parser.py - Lenght of title_matcher",len(title_matcher))
-    print("parser.py - id(nlp.vocab):", id(nlp.vocab))
 
-    series_sections = []
-
-    print(f"[SERIES DBG] boundary_starts={sorted(boundary_starts)[:10]}... len={len(boundary_starts)}")  
+    series_sections: list[dict] = []
+    # ---- Debug (optional)
+    print(f"[SERIES DBG] boundary_starts={sorted(boundary_starts)[:10]}... len={len(boundary_starts)}")
 
     for osp in org_spans:
-        # Scan AFTER the org header block, up to the next boundary (next org/heading/EOF)
+        # Region AFTER the org header block, up to next boundary (next org/heading/EOF)
         region_start = osp.end_char
-        region_end = _next_boundary_after(osp.end_char)  # IMPORTANT: after end_char
+        region_end = _next_boundary_after(osp.end_char)
         print(f"[SERIES DBG] visit ORG {osp.start_char}-{osp.end_char} -> region {region_start}-{region_end} (len={region_end-region_start})")
-
         if region_start >= region_end:
             print(f"[SERIES DBG] skip ORG {osp.start_char}-{osp.end_char}: empty region")
             continue
@@ -264,40 +274,36 @@ def parse(text: str, nlp):
         proto_lines = [ln.strip() for ln in region_text.splitlines() if ln.strip()]
         print(f"[SERIES DBG] region first lines: {proto_lines[:2]}")
 
-        # --- Pre-check: require at least one explicit title line in the ORG gap ---
+        # Pre-check: require at least one explicit title line in the region
         has_title = False
         dbg_matches = []
         for idx, ln in enumerate(region_text.splitlines()):
-            s = ln.strip()
-            if not s:
+            s_line = ln.strip()
+            if not s_line:
                 continue
-            d = nlp.make_doc(s)
+            d = nlp.make_doc(s_line)
             hit_matcher = any(i == 0 for i, j, k in title_matcher(d))
-            # 2) fallback: string regex
-            hit_regex = bool(TITLE_LINE_RE.search(s))
+            hit_regex = bool(TITLE_LINE_RE.search(s_line))
             if hit_matcher or hit_regex:
                 has_title = True
-                dbg_matches.append((idx, s))
+                dbg_matches.append((idx, s_line))
 
         print(f"[SERIES CHECK] ORG {osp.start_char}-{osp.end_char}: titles_found={len(dbg_matches)}")
-        for i, s in dbg_matches[:6]:
-            print(f"   [title@line {i}] {s}")
+        for i, s_line in dbg_matches[:6]:
+            print(f"   [title@line {i}] {s_line}")
 
         if not has_title:
             # No titles → treat this ORG as classic taxonomy only (no series)
             continue
 
-        # Use existing item segmentation in this org-scoped gap >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-       # Use existing item segmentation in this org-scoped gap
-        candidates = []
-        for s_char, e_char in find_item_char_spans(
-            text, region_start, region_end, set(boundary_starts)
-        ):
+        # Segment candidates in this org-scoped gap
+        candidates: list[tuple[int, int]] = []
+        for s_char, e_char in find_item_char_spans(text, region_start, region_end, set(boundary_starts)):
             if s_char < e_char:
                 candidates.append((s_char, e_char))
         print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: candidates_found={len(candidates)}")
 
-        # Filter out heading-like blocks unless the first line is a title
+        # Filter out heading-like blocks unless first line is a title
         kept_blocks: list[tuple[int, int]] = []
         for s_char, e_char in candidates:
             first_ln = _first_nonblank_line(text, s_char, e_char)
@@ -309,35 +315,31 @@ def parse(text: str, nlp):
                 continue
             kept_blocks.append((s_char, e_char))
 
-        # Inline-split each kept block on new titles (prevents 3/2014+4/2014 or 5/2014+6/2014 merging)
-        final_items = []
+        # Inline-split each kept block on new titles (prevents merging consecutive items)
+        final_items: list[dict] = []
         for s_char, e_char in kept_blocks:
             raw = text[s_char:e_char]
-            cuts = _find_inline_item_boundaries(raw, s_char, nlp)  # uses spaCy matcher + regex fallback
+            cuts = _find_inline_item_boundaries(raw, s_char, nlp)
             if not cuts:
-                final_items.append({
-                    "text": clean_item_text(raw),
-                    "span": {"start": s_char, "end": e_char}
-                })
+                txt = clean_item_text(raw)
+                if not is_numeric_only_item(txt):
+                    final_items.append({"text": txt, "span": {"start": s_char, "end": e_char}})
                 continue
             prev = s_char
             for cut in cuts:
                 if prev < cut:
-                    final_items.append({
-                        "text": clean_item_text(text[prev:cut]),
-                        "span": {"start": prev, "end": cut}
-                    })
+                    txt = clean_item_text(text[prev:cut])
+                    if not is_numeric_only_item(txt):
+                        final_items.append({"text": txt, "span": {"start": prev, "end": cut}})
                 prev = cut + 1
             if prev < e_char:
-                final_items.append({
-                    "text": clean_item_text(text[prev:e_char]),
-                    "span": {"start": prev, "end": e_char}
-                })
+                txt = clean_item_text(text[prev:e_char])
+                if not is_numeric_only_item(txt):
+                    final_items.append({"text": txt, "span": {"start": prev, "end": e_char}})
 
         print(f"[SERIES BUILD] ORG {osp.start_char}-{osp.end_char}: items_kept={len(final_items)}")
 
         if final_items:
-            # Label the section with the ORG’s own header (first line)
             org_header_text = text[osp.start_char:osp.end_char]
             org_label = _org_display_name(org_header_text)
             print(f"[SERIES APPEND] ORG {osp.start_char}-{osp.end_char}: label='{org_label}', items={len(final_items)}")
@@ -349,8 +351,41 @@ def parse(text: str, nlp):
                 "org_span": {"start": osp.start_char, "end": osp.end_char},
             })
 
-#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        # Merge series sections alongside taxonomy leaves
+    return series_sections
+
+
+
+
+def parse(text: str, nlp):
+    doc = nlp(text)
+    _, alias_to_nodes = build_heading_matcher(nlp)
+
+    # 1) headings → leaves
+    leaves, _ = _scan_heading_leaves(text, nlp, alias_to_nodes)
+
+    # 2) ORG spans
+    org_spans = find_org_spans(doc, text)
+    org_spans.sort(key=lambda sp: sp.start_char)
+
+    # 3) heading leaf spans (entities)
+    heading_leaf_spans = _collect_heading_leaf_spans(doc, leaves)
+
+    # 4) items inside leaves → refine-inline
+    raw_item_spans = _segment_items_in_leaves(text, leaves, nlp)
+    refined_item_spans = _refine_item_spans(text, raw_item_spans, nlp)
+
+    # 5) finalize ents (ORG + headings + items)
+    all_spans = _dedup_spans(org_spans + heading_leaf_spans + refined_item_spans)
+    all_spans = filter_spans(all_spans)
+    doc.ents = tuple(_dedup_spans(all_spans))
+
+    # 6) sections tree (taxonomy leaves)
+    sections_tree = _assemble_sections_tree_from_leaves(text, doc, leaves, list(doc.ents))
+
+    # 7) ORG-series sections (add-on)
+    series_sections = _detect_series_sections_under_orgs(
+        text, nlp, doc, leaves, org_spans, alias_to_nodes
+    )
     sections_tree.extend(series_sections)
 
     return doc, sections_tree
