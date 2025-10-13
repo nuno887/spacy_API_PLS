@@ -49,7 +49,8 @@ L1_NODES = [
         "Organizações do Trabalho:",
         "Organizações do Trabalho",
         "Oranizacoes do Trabalho:",
-        "Organizacoes do Trabalho"
+        "Organizacoes do Trabalho",
+        "ORGANIZAÇÕES DO TRABALHO:"
     ]),
     Node("Estatutos:", 1, [
         "Estatutos:",
@@ -65,7 +66,56 @@ L1_NODES = [
         "Direção:",
         "Direcao:"
         
+    ]),
+    Node("Eleicoes", 1, [
+        "Eleições:",
+        "Eleições",
+        "Eleicoes:",
+        "Eleicoes"
+    ]),
+    Node("EleicaoRepresentantes", 1, [
+        "Eleicão de Representantes:",
+        "Eleição de Representantes",
+        "Eleicao de Representantes:",
+        "Eleicao de Representantes"
+    ]),
+    Node("AcordosColetivosTrabalho", 1, [
+        "Acordos Coletivos de Trabalho:",
+        "Acordos Coletivos de Trabalho",
+        "Acordos Colectivos de Trabalho:",
+        "Acordos Colectivos de Trabalho"
+    ]),
+    Node("Estatutos/Alteracoes", 1, [
+        "Estatutos/Alterações:",
+        "Estatutos/Alterações",
+        "Estatutos/Alteracoes:",
+        "Estatutos/Alteracoes",
+        "Estatutos / Alterações:",
+        "Estatutos / Alterações",
+        "Estatutos / Alteracoes:",
+        "Estatutos / Alteracoes"
+    ]),
+    Node("CorposGerentes", 1, [
+        "Corpos Gerentes:",
+        "Corpos Gerentes"
+    ]),
+    Node("Alteracoes", 1, [
+        "Alterações:",
+        "Alterações",
+        "Alteracoes:",
+        "Alteracoes"
+    ]),
+    Node("CorposGerentes/Alteracoes", 1, [
+        "Corpos Gerentes/Alterações:",
+        "Corpos Gerentes/Alterações",
+        "Corpos Gerentes/Alteracoes:",
+        "Corpos Gerentes/Alteracoes",
+        "Corpos Gerentes / Alterações:",
+        "Corpos Gerentes / Alterações",
+        "Corpos Gerentes / Alteracoes:",
+        "Corpos Gerentes / Alteracoes"
     ])
+    
 ]
 
 L2_NODES = [
