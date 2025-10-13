@@ -49,7 +49,7 @@ class InstrItem:
 class InstrSeries:
     start_char: int
     end_char: int
-    org_key: Optional[str]          # pass-through from current ORG context
+    org_key: Optional[str]          
     items: List[InstrItem]
 
 
