@@ -50,6 +50,10 @@ L1_NODES = [
         "Organizações do Trabalho",
         "Oranizacoes do Trabalho:",
         "Organizacoes do Trabalho"
+    ]),
+    Node("Estatutos:", 1, [
+        "Estatutos:",
+        "Estatutos"
     ])
 ]
 
