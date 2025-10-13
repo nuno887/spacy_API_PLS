@@ -60,6 +60,11 @@ L1_NODES = [
         "Eleição de Representantes",
         "Eleicao de Representantes:",
         "Eleicao de Representantes"
+    ]),
+    Node("Direcao", 1, [
+        "Direção:",
+        "Direcao:"
+        
     ])
 ]
 
