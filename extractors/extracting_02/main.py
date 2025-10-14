@@ -4,7 +4,8 @@ from entities.debug_print import print_results, print_payload_summary
 from body_extraction import run_extraction
 from body_extraction.debug_print import print_report, save_report_txt
 
-
+from body_extraction.debug_tools import set_debug
+set_debug(True) 
 
 # Para apagar depois -------------------------------------------------------------------------------------------------
 

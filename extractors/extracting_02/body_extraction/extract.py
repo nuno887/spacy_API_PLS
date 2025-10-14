@@ -3,8 +3,17 @@ from typing import List, Dict, Any, Optional, Tuple, FrozenSet
 import re
 import unicodedata
 from .sections import build_windows_for_sections, pick_first_window_for_key
-
+from .debug_print import dbg_dump_window_lines, dbg_print_spacy_title_hits
 from spacy.matcher import Matcher, PhraseMatcher
+from .titles_bol import (
+    starts_from_item_prefixes,
+    augment_with_spacy_bol_hits,
+    augment_with_firstline_bol,
+    slice_by_sorted_starts,
+)
+from .title_index import index_block_titles, section_title_prefixes_from_items
+
+
 
 from .sections import (
     index_global_headers_strict,
@@ -12,6 +21,16 @@ from .sections import (
     pick_first_window_for_key,
 )
 from .body_taxonomy import BODY_SECTIONS
+
+from .debug_tools import (
+    dbg_header_windows,
+    dbg_window_first_lines,
+    dbg_scan_lines_with_prefixes,
+    dbg_spacy_title_hits,
+    dbg_item_alignment,
+)
+
+
 
 
 # =========================
@@ -36,6 +55,8 @@ def _first_nonblank_line(s: str) -> str:
 
 def _strip_diacritics(s: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
+
+
 
 
 def _normalize_for_search(s: str) -> str:
@@ -72,6 +93,8 @@ def _build_line_anchor_regex(title_line: str) -> re.Pattern:
     esc = esc.replace(r"\ ", r"[ \t]+")                     # any run of spaces/tabs
     esc = esc.replace(r"\-", r"(?:-\s*|\s+)")               # hyphenated or wrapped
     return re.compile(rf"(?m)^\s*{esc}")
+
+
 
 
 def _find_line_start_anchored(window_text: str, title_line: str) -> Optional[int]:
@@ -183,70 +206,40 @@ def _find_by_firstline(nlp, window_text: str, item_text: str) -> Optional[Tuple[
 def run_extraction(
     body_text: str,
     sections: List[Dict[str, Any]],
-    relations_org_to_org: Optional[List[Dict[str, Any]]],  # kept for API compat; unused here
+    relations_org_to_org: Optional[List[Dict[str, Any]]],  # kept for signature compatibility; unused
     nlp,
 ) -> Dict[str, Any]:
     """
-    Starts-only extractor:
-      1) Find section windows via global headers (sections.py)
-      2) For each section window, anchor each item by its *first non-blank line*
-         at start-of-line in the body (strict line-start match).
-      3) End of an item = next item's start; last ends at window end.
-      4) No fuzzy fallbacks. Items that don't anchor -> not_found (0-length span).
+    Simpler pipeline:
+      1) Build global windows per section via header detection (spaCy PhraseMatcher).
+      2) For each section window:
+         a) Generate title prefixes from Sumário items.
+         b) Detect titles using BOTH:
+            - taxonomy-driven spaCy matcher (index_block_titles)
+            - fast prefix scan (starts-with) using the generated prefixes
+         c) Merge hits → sort & de-dup at line-start.
+         d) If count == items, slice [start .. next_start) per item (high confidence).
+         e) Otherwise, consume detected starts in order; if we still need starts,
+            try a light "first-line" matcher per missing item. Emit medium confidence.
     """
-
-    # ---- tiny local helpers ----
-    def _first_nonblank_line(s: str) -> str:
-        for ln in (s or "").splitlines():
-            t = ln.strip()
-            if t:
-                # collapse internal whitespace; keep letters as-is
-                return " ".join(t.split())
-        return ""
-
-    def _find_line_start_anchored(window_text: str, needle_line: str) -> Optional[int]:
-        """
-        Return relative char index where a line equal to `needle_line` (after whitespace collapse)
-        starts in window_text. Anchored to start-of-line.
-        """
-        if not needle_line:
-            return None
-        # pre-normalize the needle (collapse spaces)
-        needle_norm = " ".join(needle_line.split())
-        # scan lines with their absolute positions in the window
-        pos = 0
-        for raw in window_text.splitlines(True):  # keep line breaks
-            # raw includes the newline (except maybe last)
-            ln = raw.rstrip("\r\n")
-            ln_norm = " ".join(ln.strip().split())
-            if ln_norm == needle_norm:
-                return pos  # start of this line in window
-            pos += len(raw)
-        return None
-
-    def _snap_left_to_line_start(text: str, start: int, floor: int) -> int:
-        j = text.rfind("\n", floor, start)
-        return floor if j == -1 else (j + 1)
-
-    # ---- 1) Build section windows up-front ----
-    windows_by_key: Dict[str, List[Tuple[int, int]]] = build_windows_for_sections(
-        nlp=nlp,
-        body_text=body_text,
-        sections=sections,
-        
-    )
-
     results: List[Dict[str, Any]] = []
 
-    # ---- 2) Main slicing loop (strict starts-only) ----
+    # 1) windows per section (based solely on body headers)
+    windows_by_key: Dict[str, List[Tuple[int, int]]] = build_windows_for_sections(nlp, body_text, sections)
+    dbg_header_windows(body_text, windows_by_key, wanted_keys=[k for k in windows_by_key.keys()])
+
+    def pick_first_window_for_key(wmap: Dict[str, List[Tuple[int, int]]], key: str) -> Optional[Tuple[int, int]]:
+        lst = wmap.get(key) or []
+        return lst[0] if lst else None
+
     for s in sections:
         sec_path = s.get("path", [])
-        sec_key = sec_path[-1] if sec_path else "(unknown)"
+        sec_key = (sec_path[-1] if sec_path else "(unknown)")
         items = list(s.get("items", []))
 
         picked = pick_first_window_for_key(windows_by_key, sec_key)
         if not picked:
-            # No header → nothing to slice. Emit not_found for all items.
+            # no header window → emit not_found for all items
             for it in items:
                 results.append({
                     "section_path": sec_path,
@@ -264,60 +257,151 @@ def run_extraction(
 
         win_start, win_end = picked
         win_start = max(0, min(win_start, len(body_text)))
-        win_end   = max(win_start, min(win_end, len(body_text)))
-        win_text  = body_text[win_start:win_end]
+        win_end = max(win_start, min(win_end, len(body_text)))
+        win_text = body_text[win_start:win_end]
 
-        # Collect (absolute_start, item_idx) via strict line-start anchoring
-        starts: List[Tuple[int, int]] = []
-        for idx, it in enumerate(items):
-            title_line = _first_nonblank_line(it.get("text", "") or "")
-            rel = _find_line_start_anchored(win_text, title_line)
-            if rel is not None:
-                starts.append((win_start + rel, idx))
+        # --- debug: quick look at the window
+        dbg_window_first_lines(sec_key, body_text, win_start, win_end)
 
-        # Sort starts and compute end as next start (last ends at window end)
-        starts.sort(key=lambda t: t[0])
-        start_pos_by_idx: Dict[int, int] = {idx: pos for (pos, idx) in starts}
+        # 2a) generate item-derived prefixes (robust to variety in titles)
+        prefixes = section_title_prefixes_from_items(items, tokens=6)
+        dbg_scan_lines_with_prefixes(body_text, win_start, win_end, prefixes)
 
-        for i, (s_abs_raw, idx) in enumerate(starts):
-            right = starts[i + 1][0] if i + 1 < len(starts) else win_end
-            s_abs_raw = max(win_start, min(win_end, int(s_abs_raw)))
-            e_abs_raw = max(s_abs_raw, min(win_end, int(right)))
+        # 2b) titles from taxonomy (spaCy) within the window
+        spacy_rel_starts = index_block_titles(nlp, win_text, sec_key)
+        spacy_abs_starts = [win_start + r for r in spacy_rel_starts]
 
-            # snap left edge to the true line start within the window
-            s_abs = _snap_left_to_line_start(body_text, s_abs_raw, win_start)
-            e_abs = max(s_abs, e_abs_raw)
+        # 2c) titles from prefix scan (fast line-by-line)
+        prefix_abs_starts: List[int] = []
+        cur = win_start
+        while cur < win_end:
+            nl = body_text.find("\n", cur, win_end)
+            line_end = nl if nl != -1 else win_end
+            raw = body_text[cur:line_end]
+            norm = " ".join(raw.strip().split())
+            if norm:
+                for p in prefixes:
+                    if norm.lower().startswith(p.lower()):
+                        prefix_abs_starts.append(cur)
+                        break
+            if nl == -1:
+                break
+            cur = nl + 1
 
-            results.append({
-                "section_path": sec_path,
-                "section_name": sec_key,
-                "section_span": s.get("span", {"start": 0, "end": 0}),
-                "item_text": items[idx].get("text", ""),
-                "item_span_sumario": items[idx].get("span"),
-                "org_context": s.get("org_context", {}),
-                "body_span": {"start": s_abs, "end": e_abs},
-                "confidence": 0.85,
-                "method": "title_match",
-                "diagnostics": {"strategy": "line_start_anchor"},
-            })
+        # 2d) merge hits → line starts only → sort + de-dup (one per line)
+        merged_starts = sorted(set(spacy_abs_starts + prefix_abs_starts))
+        # collapse to the beginning of each line
+        normed_starts: List[int] = []
+        last_line_start = None
+        for pos in merged_starts:
+            line_start = body_text.rfind("\n", win_start, pos) + 1
+            if (last_line_start is None) or (line_start - last_line_start > 2):
+                normed_starts.append(line_start)
+                last_line_start = line_start
 
-        # Emit "not found" for items that didn't anchor
-        missing = [i for i in range(len(items)) if i not in start_pos_by_idx]
-        for idx in missing:
-            results.append({
-                "section_path": sec_path,
-                "section_name": sec_key,
-                "section_span": s.get("span", {"start": 0, "end": 0}),
-                "item_text": items[idx].get("text", ""),
-                "item_span_sumario": items[idx].get("span"),
-                "org_context": s.get("org_context", {}),
-                "body_span": {"start": win_start, "end": win_start},  # zero-length
-                "confidence": 0.0,
-                "method": "not_found",
-                "diagnostics": {"reason": "no_line_anchor"},
-            })
+        dbg_spacy_title_hits(sec_key, normed_starts, body_text)
 
-    # ---- 3) Summary ----
+        # 3) perfect case: 1:1
+        if normed_starts and len(normed_starts) == len(items):
+            for i, ts in enumerate(normed_starts):
+                s_abs_raw = max(win_start, min(win_end, ts))
+                e_abs = normed_starts[i + 1] if i + 1 < len(normed_starts) else win_end
+                e_abs = max(s_abs_raw, min(win_end, e_abs))
+                s_abs = _snap_left_to_line_start(body_text, s_abs_raw, win_start)
+                if e_abs < s_abs:
+                    e_abs = s_abs
+
+                results.append({
+                    "section_path": sec_path,
+                    "section_name": sec_key,
+                    "section_span": s.get("span", {"start": 0, "end": 0}),
+                    "item_text": items[i].get("text", ""),
+                    "item_span_sumario": items[i].get("span"),
+                    "org_context": s.get("org_context", {}),
+                    "body_span": {"start": s_abs, "end": e_abs},
+                    "confidence": 0.85,
+                    "method": "title_match",
+                    "diagnostics": {
+                        "titles_indexed": len(normed_starts),
+                        "sources": {
+                            "spacy": len(spacy_abs_starts),
+                            "prefix": len(prefix_abs_starts),
+                        },
+                    },
+                })
+            dbg_item_alignment(sec_key, items, normed_starts, body_text)
+            continue  # next section
+
+        # 4) mixed/low-signal: consume detected starts, then try first-line
+        occupied: List[int] = list(normed_starts)
+        chosen_starts_abs: List[int] = []
+
+        for it in items:
+            chosen = None
+
+            if occupied:
+                chosen = occupied.pop(0)
+            else:
+                # light fallback: first-line pattern on this window
+                hit = _find_by_firstline(nlp, win_text, it.get("text", "") or "")
+                if hit:
+                    chosen = win_start + hit[0]
+
+            if chosen is not None:
+                chosen_starts_abs.append(chosen)
+                # slice
+                e_abs = win_end
+                future = [p for p in occupied if p > chosen]
+                if future:
+                    e_abs = min(e_abs, min(future))
+                s_abs_raw = max(win_start, min(win_end, chosen))
+                e_abs = max(s_abs_raw, min(win_end, e_abs))
+                s_abs = _snap_left_to_line_start(body_text, s_abs_raw, win_start)
+                if e_abs < s_abs:
+                    e_abs = s_abs
+
+                results.append({
+                    "section_path": sec_path,
+                    "section_name": sec_key,
+                    "section_span": s.get("span", {"start": 0, "end": 0}),
+                    "item_text": it.get("text", ""),
+                    "item_span_sumario": it.get("span"),
+                    "org_context": s.get("org_context", {}),
+                    "body_span": {"start": s_abs, "end": e_abs},
+                    "confidence": 0.70 if normed_starts else 0.55,
+                    "method": "title_or_firstline_mix" if normed_starts else "firstline_match",
+                    "diagnostics": {
+                        "titles_indexed": len(normed_starts),
+                        "sources": {
+                            "spacy": len(spacy_abs_starts),
+                            "prefix": len(prefix_abs_starts),
+                        },
+                    },
+                })
+            else:
+                # still nothing
+                results.append({
+                    "section_path": sec_path,
+                    "section_name": sec_key,
+                    "section_span": s.get("span", {"start": 0, "end": 0}),
+                    "item_text": it.get("text", ""),
+                    "item_span_sumario": it.get("span"),
+                    "org_context": s.get("org_context", {}),
+                    "body_span": {"start": 0, "end": 0},
+                    "confidence": 0.0,
+                    "method": "not_found",
+                    "diagnostics": {
+                        "reason": "no_title_or_firstline_match",
+                        "titles_indexed": len(normed_starts),
+                        "sources": {
+                            "spacy": len(spacy_abs_starts),
+                            "prefix": len(prefix_abs_starts),
+                        },
+                    },
+                })
+
+        dbg_item_alignment(sec_key, items, chosen_starts_abs, body_text)
+
     summary = {
         "found": sum(1 for r in results if r["method"] not in ("not_found",)),
         "not_found": sum(1 for r in results if r["method"] in ("not_found",)),

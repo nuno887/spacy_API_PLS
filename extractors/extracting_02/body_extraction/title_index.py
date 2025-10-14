@@ -1,8 +1,43 @@
-# body_extraction/title_index.py
 from typing import List, Optional, Dict, Any
 from spacy.matcher import Matcher, PhraseMatcher
 from spacy.tokens import Doc
 from .body_taxonomy import BODY_SECTIONS
+
+import re
+from typing import List, Dict
+
+def section_title_prefixes_from_items(items: List[Dict], tokens: int = 6) -> List[str]:
+    """
+    From Sumário items (each with "text"), build short normalized prefixes
+    like "Aviso de Projeto de Portaria de" or "Contrato Coletivo entre a".
+    These are used for fast line-start matching inside the section window.
+    """
+    prefixes: List[str] = []
+
+    def normalize(s: str) -> str:
+        s = re.sub(r"\s+", " ", (s or "").strip())
+        # keep punctuation that often appears in headings (dash/colon/paren)
+        return s
+
+    for it in items or []:
+        txt = normalize(it.get("text", ""))
+        if not txt:
+            continue
+        # take first N whitespace-delimited tokens
+        parts = txt.split(" ")
+        head = " ".join(parts[:tokens]).strip()
+        if head:
+            prefixes.append(head)
+
+    # dedup while preserving order
+    seen = set()
+    uniq: List[str] = []
+    for p in prefixes:
+        key = p.lower()
+        if key not in seen:
+            seen.add(key)
+            uniq.append(p)
+    return uniq
 
 
 def _build_title_matcher(nlp, section_key: str) -> Optional[Matcher]:
