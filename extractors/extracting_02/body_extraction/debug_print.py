@@ -1,38 +1,58 @@
 # body_extraction/debug_print.py
-from typing import Dict
+from typing import Dict, Any
 
-def print_report(report: Dict, body_text: str, show_full: bool = False, preview_chars: int = 220) -> None:
+
+def _first_nonblank_line(s: str) -> str:
+    """Return the first non-empty line of s, with internal whitespace collapsed."""
+    for ln in (s or "").splitlines():
+        t = ln.strip()
+        if t:
+            return " ".join(t.split())
+    return ""
+
+
+def _clean_one_line(s: str) -> str:
+    """Normalize CR/LF to spaces for compact previews."""
+    return (s or "").replace("\r\n", " ").replace("\n", " ").strip()
+
+
+def print_report(report: Dict[str, Any],
+                 body_text: str,
+                 show_full: bool = False,
+                 preview_chars: int = 220) -> None:
     """
     Pretty-print the extraction report.
-    - show_full: if True, prints the entire matched section text instead of a truncated preview.
-    - preview_chars: how many characters to show if show_full=False.
+
+    - show_full: if True, prints the entire matched body text instead of a truncated preview.
+    - preview_chars: how many characters of body to show if show_full=False.
     """
-    found = sum(1 for r in report["results"] if r["method"] != "none")
-    total = len(report["results"])
-    avg_conf = (
-        sum(r["confidence"] for r in report["results"]) / total if total > 0 else 0.0
-    )
+    results = report.get("results", [])
+    total = len(results)
+    found = sum(1 for r in results if r.get("method") not in (None, "none"))
+    avg_conf = (sum(float(r.get("confidence", 0.0)) for r in results) / total) if total > 0 else 0.0
 
     print("\n=== BODY EXTRACTION SUMMARY ===")
     print(f"Found: {found} | Not found: {total - found} | Avg conf: {avg_conf:.2f}")
 
     print("\n=== BODY EXTRACTION RESULTS ===")
-    for i, r in enumerate(report["results"], 1):
+    for i, r in enumerate(results, 1):
         sec_name = r.get("section_name", "(unknown)")
         method = r.get("method", "none")
-        conf = r.get("confidence", 0.0)
-        item_text = r.get("item_text", "").replace("\n", " ")
+        conf = float(r.get("confidence", 0.0))
 
-        s = r["body_span"]["start"]
-        e = r["body_span"]["end"]
+        # Full, untruncated first item line
+        item_text_full_line = _first_nonblank_line(r.get("item_text", ""))
+        print(f"{i:02d}. [{method} | conf={conf:.2f}] {sec_name}")
+        print(f"    item  : {item_text_full_line}")
 
-        # Decide how much body text to show
+        # Body excerpt
+        span = r.get("body_span") or {}
+        s = int(span.get("start", 0))
+        e = int(span.get("end", 0))
+
         if show_full:
             excerpt = body_text[s:e]
         else:
-            excerpt = body_text[s:min(e, s + preview_chars)]
-        excerpt_clean = excerpt.replace("\r\n", " ").replace("\n", " ")
+            excerpt = body_text[s:min(e, s + max(0, int(preview_chars)))]
 
-        print(f"{i:02d}. [{method} | conf={conf:.2f}] {sec_name}")
-        print(f"    item  : {item_text[:180]}")
-        print(f"    body  : @{s}..{e}  | '{excerpt_clean}'")
+        print(f"    body  : @{s}..{e}  | '{_clean_one_line(excerpt)}'")

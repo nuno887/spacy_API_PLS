@@ -1,6 +1,82 @@
-# body_extraction/spans.py
-from typing import Tuple
+from typing import Tuple, List, Dict
 from spacy.tokens import Doc
+import re
+
+
+
+# Title-like lines that usually start a new item
+TITLE_LINE_RE = re.compile(
+    r'^\s*(?:Acordo|Contrato|Portaria|Aviso|CCT|Conven[cç][aã]o|Conven[cç]oes?|Regulamento)\b',
+    re.IGNORECASE
+)
+
+# Section names that also act as hard stops (lowercased, no trailing colon)
+_SECTION_STOPS = {
+    "despachos",
+    "despacho",
+    "portarias de condições de trabalho",
+    "portarias de condicoes de trabalho",
+    "portarias de extensão",
+    "portarias de extensao",
+    "convenções coletivas de trabalho",
+    "convencoes coletivas de trabalho",
+    "regulamentos de extensão",
+    "regulamentos de extensao",
+    "regulamentos de condições mínimas",
+    "regulamentos de condicoes minimas",
+}
+
+def _is_all_caps_header(line: str) -> bool:
+    t = line.strip()
+    if not t:
+        return False
+    letters = [ch for ch in t if ch.isalpha()]
+    if len(letters) < 6:
+        return False
+    return all(ch == ch.upper() for ch in letters)
+
+def grow_to_block_boundary(
+    body_text: str,
+    start: int,
+    end: int,
+    block_start: int,
+    block_end: int,
+) -> Tuple[int, int, bool]:
+    """
+    Grow [start, end) forward within [block_start, block_end) until a structural stop:
+      - next title-like line (TITLE_LINE_RE),
+      - next section cue (_SECTION_STOPS),
+      - next ORG-like all-caps header,
+      - or block_end.
+    Returns (new_start, new_end, used_boundary).
+    """
+    start = max(block_start, min(start, block_end))
+    end = max(start, min(end, block_end))
+
+    seg = body_text[end:block_end]
+    off = end
+    for ln in seg.splitlines(keepends=True):
+        stripped = ln.strip()
+        if TITLE_LINE_RE.match(stripped):
+            return start, off, True
+        if stripped.rstrip(":").lower() in _SECTION_STOPS:
+            return start, off, True
+        if _is_all_caps_header(stripped):
+            return start, off, True
+        off += len(ln)
+    return start, block_end, False
+
+def resolve_overlaps_in_block(results_in_block: List[Dict]) -> None:
+    """
+    In-place: sort by start; if two items overlap, clamp the earlier one's end
+    to the next start so items become sequential within the block.
+    """
+    results_in_block.sort(key=lambda r: (r["body_span"]["start"], r["body_span"]["end"]))
+    for i in range(len(results_in_block) - 1):
+        cur = results_in_block[i]["body_span"]
+        nxt = results_in_block[i + 1]["body_span"]
+        if cur["end"] > nxt["start"]:
+            cur["end"] = max(cur["start"], nxt["start"])
 
 def expand_to_sentence(doc: Doc, start: int, end: int) -> Tuple[int, int]:
     """

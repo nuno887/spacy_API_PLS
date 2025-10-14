@@ -114,6 +114,12 @@ L1_NODES = [
         "Corpos Gerentes / Alterações",
         "Corpos Gerentes / Alteracoes:",
         "Corpos Gerentes / Alteracoes"
+    ]),
+    Node("MembrosDirecao", 1, [
+        "Membros da Direção:",
+        "Membros da Direção",
+        "Membros da Direcao:",
+        "Membros da Direcao"
     ])
     
 ]
