@@ -1,7 +1,28 @@
 # body_extraction/anchors.py
 
 from typing import List, Dict, Any, Tuple, Optional
+import re
 from entities.normalization import canonical_org_key
+
+
+# --- Spaced ALL-CAPS banner collapse -----------------------------------------
+# e.g., "S E C R E T A R I A  R E G I O N A L" -> "SECRETARIA REGIONAL"
+_SPACED_CAPS_RUN = re.compile(r"(?:\b[A-ZÀ-Ý]\b[ \u00A0])+[A-ZÀ-Ý]\b")
+
+def _collapse_spaced_caps(s: str) -> str:
+    """
+    Collapse runs of single uppercase letters separated by spaces/NBSP into a word.
+    Keeps normal words intact. Also squeezes redundant spaces.
+    """
+    if not s:
+        return ""
+    def _join_run(m: re.Match) -> str:
+        letters = re.findall(r"[A-ZÀ-Ý]", m.group(0))
+        return "".join(letters)
+    out = _SPACED_CAPS_RUN.sub(_join_run, s)
+    # squeeze multiple spaces/nbsp into single space
+    out = re.sub(r"[ \u00A0]{2,}", " ", out)
+    return out.strip()
 
 
 def build_body_org_bands_from_relations(
@@ -20,13 +41,12 @@ def build_body_org_bands_from_relations(
           "meta": {
             "body_org":    {"surface_raw": <str>, "span": {"start": <int>, "end": <int>}},  # BODY-relative
             "sumario_org": {"surface_raw": <str>, "span": {"start": <int>, "end": <int>}},  # Sumário coords
-            "relation":    <original relation dict>,  # optional (debug)
+            "relation":    <original relation dict>,
           },
         },
         ...
       ]
     """
-    # 1) Collect unique anchors at body-relative positions
     anchors: List[Dict[str, Any]] = []
     seen_starts: set[int] = set()
 
@@ -47,7 +67,6 @@ def build_body_org_bands_from_relations(
         s_rel = min(s_rel, body_len)
         e_rel = min(e_rel, body_len)
 
-        # De-dup by body header start
         if s_rel in seen_starts:
             continue
         seen_starts.add(s_rel)
@@ -63,10 +82,9 @@ def build_body_org_bands_from_relations(
                 "surface_raw": sumario_side.get("surface_raw", ""),
                 "span": sumario_side.get("span") or {},
             },
-            "relation": rel,  # keep for debugging if needed
+            "relation": rel,
         })
 
-    # 2) No anchors → single band covering the whole body
     if not anchors:
         return [{
             "key": None,
@@ -78,7 +96,6 @@ def build_body_org_bands_from_relations(
             }
         }]
 
-    # 3) Sort by body start and form bands [start_i, start_{i+1})
     anchors.sort(key=lambda a: a["start_rel"])
     bands: List[Dict[str, Any]] = []
     for i, a in enumerate(anchors):
@@ -126,17 +143,30 @@ def _normalize_bands(body_bands: Any) -> List[Dict[str, Any]]:
             meta = b.get("meta") or {}
             if not k:
                 # Try derive from body or sumário surface
-                surf = (meta.get("body_org", {}).get("surface_raw")
-                        or meta.get("sumario_org", {}).get("surface_raw") or "").strip()
-                k = canonical_org_key(surf) if surf else None
+                surf = (
+                    meta.get("body_org", {}).get("surface_raw")
+                    or meta.get("sumario_org", {}).get("surface_raw")
+                    or meta.get("surface_raw")
+                    or ""
+                ).strip()
+                if surf:
+                    surf = _collapse_spaced_caps(surf)
+                    k = canonical_org_key(surf)
             out.append({"key": k, "band": band, "meta": meta})
         elif isinstance(b, (tuple, list)) and len(b) >= 2:
             a, z = b[0], b[1]
             meta = b[2] if len(b) > 2 and isinstance(b[2], dict) else {}
-            surf = (meta.get("surface_raw")
-                    or meta.get("body_org", {}).get("surface_raw")
-                    or meta.get("sumario_org", {}).get("surface_raw") or "").strip()
-            k = canonical_org_key(surf) if surf else None
+            surf = (
+                meta.get("surface_raw")
+                or meta.get("body_org", {}).get("surface_raw")
+                or meta.get("sumario_org", {}).get("surface_raw")
+                or ""
+            ).strip()
+            if surf:
+                surf = _collapse_spaced_caps(surf)
+                k = canonical_org_key(surf)
+            else:
+                k = None
             out.append({"key": k, "band": (a, z), "meta": meta})
         # else: unknown shape → skip
     return out
@@ -154,8 +184,8 @@ def pick_band_for_section(
 
     Priority:
       1) org_key lookup
-      2) org_surface canonicalized
-      3) nearest by sumário position (if meta contains sumário start)
+      2) org_surface canonicalized (with spaced-caps collapse)
+      3) nearest by sumário position (if provided and available)
       4) default_band
     """
     bands = _normalize_bands(body_bands)
@@ -167,10 +197,11 @@ def pick_band_for_section(
         a, z = b["band"]
         return a, z, {"via": "key", **(b.get("meta") or {})}
 
-    # 2) fuzzy by surface → canonical
+    # 2) fuzzy by surface → canonical (with spaced-caps collapse)
     if org_surface:
         try:
-            k = canonical_org_key(str(org_surface))
+            cleaned = _collapse_spaced_caps(str(org_surface))
+            k = canonical_org_key(cleaned)
         except Exception:
             k = None
         if k and k in index:
@@ -178,7 +209,7 @@ def pick_band_for_section(
             a, z = b["band"]
             return a, z, {"via": "surface", **(b.get("meta") or {})}
 
-    # 3) nearest by sumário position
+    # 3) nearest by sumário position (optional; ignored if None)
     if sumario_pos is not None:
         best = None
         best_dist = None

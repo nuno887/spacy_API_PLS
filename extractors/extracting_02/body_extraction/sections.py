@@ -1,118 +1,157 @@
 # body_extraction/sections.py
+from __future__ import annotations
 
-from typing import List, Tuple, Dict, Iterable
-from spacy.tokens import Doc
-from spacy.matcher import PhraseMatcher
+from .matchers import header_matcher_for, find_header_hits_strict
 from .body_taxonomy import BODY_SECTIONS
-from .matchers import get_header_matcher
 
 
-def _label_variants(section_label_surface: str) -> List[str]:
-    """
-    Build minimal robust variants from the printed section label:
-    - strip trailing colon
-    - include with and without colon
-    """
-    label = (section_label_surface or "").strip()
-    if label.endswith(":"):
-        label = label[:-1].strip()
-    variants = []
-    if label:
-        variants.append(label)
-        variants.append(f"{label}:")
-    return variants
+from typing import Iterable, List, Tuple, Dict
 
+def _line_at(text: str, pos: int) -> str:
+    """Return the full line (trimmed) containing absolute char index `pos`."""
+    L = text.rfind("\n", 0, pos) + 1
+    R = text.find("\n", pos)
+    if R == -1:
+        R = len(text)
+    return " ".join(text[L:R].strip().split())
 
-def find_section_cuts_in_band(
+def index_global_headers_strict(
     nlp,
-    body_text: str,
-    band_start: int,
-    band_end: int,
+    text: str,
     section_keys: Iterable[str],
-) -> List[Tuple[int, str]]:
+) -> List[Tuple[str, int]]:
     """
-    Return list of (abs_start_pos, section_key) where a header alias for that section
-    appears inside the band.
+    Return a list of (section_key, abs_start_char) for headers found in `text`,
+    but ONLY when the match begins at the start of a line (ignores leading spaces).
+
+    We rely on BODY_SECTIONS.header_aliases via `header_matcher_for(...)`.
     """
-    text = body_text[band_start:band_end]
-    doc: Doc = nlp.make_doc(text)
+    doc = nlp.make_doc(text)
+    pm = header_matcher_for(nlp, section_keys)
 
-    pm = get_header_matcher(nlp, section_keys)
-    hits: List[Tuple[int, str]] = []
+    headers: List[Tuple[str, int]] = []
+    for match_id, start, _end in pm(doc):
+        label = nlp.vocab.strings[match_id]  # e.g. "HDR__Convencoes"
+        # Extract the section key after the "HDR__" prefix
+        key = label.split("__", 1)[-1] if "__" in label else label
 
-    for match_id, s, _ in pm(doc):
-        label = doc.vocab.strings[match_id]  # e.g. "HDR_Convencoes"
-        # label format is "HDR_<canonical>"
-        _, key = label.split("_", 1)
-        abs_pos = band_start + doc[s].idx
-        hits.append((abs_pos, key))
+        start_char = doc[start].idx
 
-    hits.sort(key=lambda x: x[0])
-    return hits
+        # Enforce "header is at line start" (ignoring left spaces)
+        ln_start = text.rfind("\n", 0, start_char) + 1  # 0 if no newline before
+        # Allow only spaces/tabs between line start and the header
+        if text[ln_start:start_char].strip() != "":
+            continue
+
+        headers.append((key, start_char))
+
+    # Sort by position (absolute start char)
+    headers.sort(key=lambda t: t[1])
 
 
-def build_section_blocks_in_band(
+def build_windows_for_sections(
     nlp,
     body_text: str,
-    band_start: int,
-    band_end: int,
-    section_keys_in_org: List[str],
-) -> Dict[str, Tuple[int, int]]:
+    sections: List[dict],
+    *,
+    debug: bool = True,
+) -> Dict[str, List[Tuple[int, int]]]:
     """
-    Partition [band_start, band_end) into ordered blocks per found header.
-    Returns mapping {section_key: (start, end)} for keys that had a header hit.
+    Scan the entire body for TRUE section headers (start-of-line only), restricted
+    to the section keys present in `sections`. Convert each header hit into a window
+    [start, next_start) where the last window ends at EOF.
+
+    Returns:
+        { section_key: [(start, end), ...] }
     """
-    cuts = find_section_cuts_in_band(nlp, body_text, band_start, band_end, section_keys_in_org)
-    blocks: Dict[str, Tuple[int, int]] = {}
+    # Only consider section keys that actually appear in this document & are known
+    wanted_keys = {(s.get("path") or ["(unknown)"])[-1] for s in sections}
+    wanted_keys = {k for k in wanted_keys if k in BODY_SECTIONS}
 
-    if not cuts:
-        return blocks
+    # Strict, start-of-line header hits (already de-duped)
+    hits = find_header_hits_strict(nlp, body_text, wanted_keys)  # [(start_char, sec_key)]
+    hits.sort(key=lambda t: t[0])
 
-    for i, (pos, key) in enumerate(cuts):
-        start = pos
-        end = cuts[i + 1][0] if i + 1 < len(cuts) else band_end
-        blocks[key] = (start, end)
+    if debug:
+        print("[HDR-DBG] wanted_keys:", sorted(wanted_keys))
+        print(f"[HDR-DBG] total header hits: {len(hits)}")
+        for start, key in hits:
+            # show the whole header line
+            line_start = body_text.rfind("\n", 0, start) + 1
+            line_end = body_text.find("\n", start)
+            if line_end == -1:
+                line_end = len(body_text)
+            line = body_text[line_start:line_end].strip()
+            print(f"  - hit @ {start:5d} | {key:>20} | line={line!r}")
 
-    return blocks
-
-
-def find_section_block_in_band_spacy(
-    nlp,
-    body_text: str,
-    band_start: int,
-    band_end: int,
-    section_label_surface: str,
-    section_key: str,
-) -> Tuple[int, int]:
-    """
-    Fallback: find the start of a single section inside [band_start, band_end)
-    using (1) label variants and (2) taxonomy aliases (header_aliases) for that key.
-    Returns (section_start_abs, band_end). If nothing matches, returns (band_start, band_end).
-    """
-    band_text = body_text[band_start:band_end]
-    doc = nlp.make_doc(band_text)
-
-    # Build patterns: label variants first (most specific), then taxonomy header aliases
-    variants = set(_label_variants(section_label_surface))
-    sec = BODY_SECTIONS.get(section_key)
-    if sec:
-        for alias in sec.header_aliases:
-            if alias:
-                variants.add(alias)
-
-    if not variants:
-        return band_start, band_end
-
-    matcher = PhraseMatcher(doc.vocab, attr="LOWER")
-    for i, v in enumerate(sorted(variants, key=len, reverse=True)):
-        matcher.add(f"SEC_{i}", [nlp.make_doc(v)])
-
-    hits = matcher(doc)
+    # Build windows per key
+    windows_by_key: Dict[str, List[Tuple[int, int]]] = {k: [] for k in wanted_keys}
     if not hits:
-        return band_start, band_end
+        return windows_by_key
 
-    # Earliest occurrence by character index
-    best = min(hits, key=lambda h: doc[h[1]].idx)
-    _, s, _ = best
-    start_char_in_band = doc[s].idx
-    return band_start + start_char_in_band, band_end
+    for i, (start_pos, key) in enumerate(hits):
+        end_pos = len(body_text) if i + 1 == len(hits) else hits[i + 1][0]
+        # Guards
+        start_pos = max(0, min(start_pos, end_pos))
+        end_pos = max(start_pos, min(end_pos, len(body_text)))
+        windows_by_key[key].append((start_pos, end_pos))
+
+    if debug:
+        print("[HDR-DBG] windows_by_key:")
+        for key in sorted(windows_by_key.keys()):
+            for (a, b) in windows_by_key[key]:
+                # first line inside the window
+                win = body_text[a:b]
+                first = next((ln.strip() for ln in win.splitlines() if ln.strip()), "")
+                print(f"  • {key:>20}: @{a}..{b} | first_line={first!r}")
+
+    return windows_by_key
+
+def pick_first_window_for_key(
+    windows_by_key: Dict[str, List[Tuple[int, int]]],
+    section_key: str,
+) -> Tuple[int, int] | None:
+    """
+    Return the first (start, end) window for a given section key, if any.
+    """
+    wins = windows_by_key.get(section_key) or []
+    return wins[0] if wins else None
+
+
+from typing import Iterable, List, Tuple, Dict
+# make sure these two are present in the file:
+# from .matchers import header_matcher_for
+# from .sections import index_global_headers_strict  # if defined below, no need to import
+
+def build_section_windows_strict(
+    nlp,
+    body_text: str,
+    section_keys: Iterable[str],
+) -> Dict[str, List[Tuple[int, int]]]:
+    """
+    Build windows [start, end) in `body_text` for each known section key by:
+      1) Finding all global headers (strict: must start at line start).
+      2) Sorting them by position.
+      3) Window end = next header start (or text end for the last one).
+
+    Returns:
+      { section_key: [(start, end), ...], ... }
+    """
+    # 1) Find every header occurrence with strict "line start" rule
+    headers: List[Tuple[str, int]] = index_global_headers_strict(nlp, body_text, section_keys)
+
+    # 2) Sort by absolute start
+    headers.sort(key=lambda kv: kv[1])
+
+    # 3) Produce windows
+    windows_by_key: Dict[str, List[Tuple[int, int]]] = {}
+    text_len = len(body_text)
+
+    for i, (key, start_pos) in enumerate(headers):
+        end_pos = headers[i + 1][1] if i + 1 < len(headers) else text_len
+        # guard against inversions
+        start_pos = max(0, min(start_pos, text_len))
+        end_pos = max(start_pos, min(end_pos, text_len))
+        windows_by_key.setdefault(key, []).append((start_pos, end_pos))
+
+    return windows_by_key
