@@ -2,7 +2,7 @@ import spacy
 from entities import parse, parse_sumario_and_body_bundle
 from entities.debug_print import print_results, print_payload_summary
 from body_extraction import run_extraction
-from body_extraction.debug_print import print_report  
+from body_extraction.debug_print import print_report, save_report_txt
 
 
 
@@ -108,5 +108,8 @@ if __name__ == "__main__":
     report = run_extraction(body_text, sections, rels, nlp)
 
     print_report(report, body_text, show_full=True)
+
+    save_report_txt("extraction_report.txt", report, body_text, show_full=True, preview_chars=400)
+    print("Saved: extraction_report.txt")
 
 
