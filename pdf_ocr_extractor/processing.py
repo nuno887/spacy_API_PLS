@@ -71,6 +71,33 @@ def process_pdf_file(pdf_path: Path, cfg: dict) -> VirtualTextFile:
                 page = doc[i]
                 clip = page_clip_rect(page, i, float(cfg["IgnoreTopPercent"]))
 
+                print(f"[DBG] p{i+1} page_rect={page.rect} clip={clip}")
+
+                raw_txt = (page.get_text('text', clip=clip) or '').strip()
+                print(f"[DBG] p{i+1} text_len={len(raw_txt)}")
+
+                blocks = page.get_text('blocks', clip=clip) or []
+                print(f"[DBG] p{i+1} blocks={len(blocks)}")
+
+                words = page.get_text('words', clip=clip) or []
+                print(f"[DBG] p{i+1} words_total={len(words)}")
+
+                # define a “gap” line to separate sumário (top) from body (below)
+                gap_y = clip.y0 + (clip.y1 - clip.y0) * 0.35  # adjust if needed
+                words_below = [w for w in words if w[1] >= gap_y]
+                print(f"[DBG] p{i+1} words_below_gap={len(words_below)} gap_y={gap_y:.1f}")
+
+                max_y_seen = max((w[3] for w in words), default=clip.y0)
+                coverage = (max_y_seen - clip.y0) / max(1.0, (clip.y1 - clip.y0))
+                print(f"[DBG] p{i+1} max_y_seen={max_y_seen:.1f} coverage={coverage:.2%}")
+
+                if words_below:
+                    xs = [ (w[0]+w[2])/2.0 for w in words_below ]
+                    x_min, x_max = min(xs), max(xs)
+                    print(f"[DBG] p{i+1} body_x_mid_range=({x_min:.1f},{x_max:.1f}) page_x=({clip.x0:.1f},{clip.x1:.1f})")
+
+
+
                 # Strategy: page 2 heuristic or digital-first
                 text = ""
                 try:
