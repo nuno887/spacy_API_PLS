@@ -1,6 +1,6 @@
 
 === BODY EXTRACTION SUMMARY ===
-Found: 5 | Not found: 0 | Avg conf: 0.76
+Found: 5 | Not found: 0 | Avg conf: 0.85
 
 === BODY EXTRACTION RESULTS ===
 01. [title_match | conf=0.85] PortariasExtensao
@@ -9,12 +9,12 @@ Found: 5 | Not found: 0 | Avg conf: 0.76
 02. [title_match | conf=0.85] PortariasExtensao
     item  : Aviso de Projeto de Portaria de Extensão do Contrato Coletivo entre a Associação Portuguesa de Facility Services - APFS e o Sindicato dos Trabalhadores de Serviços de Portaria, Vigilância, Limpeza, Domésticas e Atividades Diversas - STAD e outra.
     body  : @1535..2670  | 'Aviso de Projeto de Portaria de Extensão do Contrato  Coletivo entre a Associação Portuguesa de Facility  Services - APFS e o Sindicato dos Trabalhadores de  Serviços de Portaria, Vigilância, Limpeza,  Domésticas e Atividades Diversas - STAD e outra.  Nos termos e para os efeitos dos artigos 516.º n.º 2 do  Código do Trabalho, e 99.º do Código do Procedimento  Administrativo, e tendo presente o disposto no art.º 11.º da  Lei n.º 7/2009, de 12 de fevereiro, que aprova o Código do  Trabalho torna-se público que se encontra em estudo nos  serviços competentes da Secretaria Regional de Inclusão  Social e Cidadania, a eventual emissão de uma Portaria de  Extensão do Contrato Coletivo entre a Associação  Portuguesa de Facility Services - APFS e o Sindicato dos  Trabalhadores de Serviços de Portaria, Vigilância, Limpeza,  Domésticas e Atividades Diversas - STAD e outra, publicado no BTE, n.º 2 de 15 de janeiro de 2020, e  transcrito neste Jornal Oficial. ... Secretaria Regional de Inclusão Social e Cidadania, aos 28 de  janeiro de 2020. - A Secretária Regional de Inclusão Social e  Cidadania, Augusta Ester Faria de Aguiar.'
-03. [title_or_firstline_mix | conf=0.70] Convencoes
+03. [title_match | conf=0.85] Convencoes
     item  : Contrato Coletivo entre a Associação Nacional das Farmácias - ANF e o SINPROFARM - Sindicato Nacional dos Profissionais de Farmácia - Alteração salarial e outras
     body  : @2705..3030  | 'Contrato Coletivo entre a Associação Nacional das  Farmácias - ANF e o SINPROFARM - Sindicato  Nacional dos Profissionais de Farmácia - Alteração  salarial e outras.  A Associação Nacional das Farmácias - ANF e o  SINPROFARM - Sindicato Nacional dos Profissionais de  Farmácia acordam a revisão parcial do contrato coletivo'
-04. [title_or_firstline_mix | conf=0.70] Convencoes
+04. [title_match | conf=0.85] Convencoes
     item  : Contrato Coletivo entre a Associação Portuguesa de Facility Services - APFS e o Sindicato dos Trabalhadores de Serviços de Portaria, Vigilância, Limpeza, Domésticas e Atividades Diversas - STAD e outra
     body  : @3030..3502  | '(CCT) entre as mesmas outorgado e publicado no Boletim  do Trabalho e Emprego (BTE), n.º 48, de 29 de dezembro de  2018, com as alterações publicadas no Boletim do Trabalho  e Emprego, n.º 12, de 29 de março de 2019, nos seguintes  termos: ... Depositado em 20 de dezembro de 2019, a fl. 114 do livro n.º  12, com o n.º 4/2020, nos termos do artigo 494.º do Código do  Trabalho, aprovado pela Lei n.º 7/2009, de 12 de fevereiro. (Publicado no BTE., n.º 1, de 8/01/2020).'
-05. [title_or_firstline_mix | conf=0.70] Convencoes
+05. [title_match | conf=0.85] Convencoes
     item  : Acordo de adesão entre a APROSE - Associação Nacional de Agentes e Corretores de Seguros e o Sindicato Nacional dos Profissionais de Seguros e Afins (SINAPSA) ao contrato coletivo entre a mesma associação de empregadores e o Sindicato dos Trabalhadores da Atividade Seguradora (STAS) e outro
     body  : @3502..4146  | 'Contrato Coletivo entre a Associação Portuguesa de  Facility Services - APFS e o Sindicato dos  Trabalhadores de Serviços de Portaria, Vigilância,  Limpeza, Domésticas e Atividades Diversas - STAD e  outra.  CAPÍTULO I Do âmbito e vigência Cláusula 1.ª  Âmbito 1 - O presente CCT aplica-se em Portugal continental e  às Regiões Autónomas e, em relação a estas últimas com  exclusão do previsto na cláusula 55.ª. ... Depositado em 3 de janeiro de 2020, a fl. 116 do livro n.º 12,  com o n.º 20/2020, nos termos do artigo 494.º do Código do  Trabalho, aprovado pela Lei n.º 7/2009, de 12 de fevereiro. (Publicado no BTE., n.º 2, de 15/01/2020).'

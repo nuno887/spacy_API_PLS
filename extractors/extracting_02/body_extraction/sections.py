@@ -1,11 +1,9 @@
-# body_extraction/sections.py
 from __future__ import annotations
+
+from typing import Iterable, List, Tuple, Dict
 
 from .matchers import header_matcher_for, find_header_hits_strict
 from .body_taxonomy import BODY_SECTIONS
-
-
-from typing import Iterable, List, Tuple, Dict
 
 def _line_at(text: str, pos: int) -> str:
     """Return the full line (trimmed) containing absolute char index `pos`."""
@@ -19,9 +17,9 @@ def index_global_headers_strict(
     nlp,
     text: str,
     section_keys: Iterable[str],
-) -> List[Tuple[str, int]]:
+) -> List[Tuple[int, str]]:
     """
-    Return a list of (section_key, abs_start_char) for headers found in `text`,
+    Return a list of (start_char, section_key) for headers found in `text`,
     but ONLY when the match begins at the start of a line (ignores leading spaces).
 
     We rely on BODY_SECTIONS.header_aliases via `header_matcher_for(...)`.
@@ -29,32 +27,32 @@ def index_global_headers_strict(
     doc = nlp.make_doc(text)
     pm = header_matcher_for(nlp, section_keys)
 
-    headers: List[Tuple[str, int]] = []
+    headers: List[Tuple[int, str]] = []
     for match_id, start, _end in pm(doc):
         label = nlp.vocab.strings[match_id]  # e.g. "HDR__Convencoes"
-        # Extract the section key after the "HDR__" prefix
+        # Labels follow "HDR__{section_key}" — keep the part after the prefix.
         key = label.split("__", 1)[-1] if "__" in label else label
 
         start_char = doc[start].idx
 
         # Enforce "header is at line start" (ignoring left spaces)
         ln_start = text.rfind("\n", 0, start_char) + 1  # 0 if no newline before
-        # Allow only spaces/tabs between line start and the header
         if text[ln_start:start_char].strip() != "":
             continue
 
-        headers.append((key, start_char))
+        # Standardize tuple order to (start_char, section_key)
+        headers.append((start_char, key))
 
     # Sort by position (absolute start char)
-    headers.sort(key=lambda t: t[1])
-
+    headers.sort(key=lambda t: t[0])
+    return headers  # <-- (bug fix) previously missing
 
 def build_windows_for_sections(
     nlp,
     body_text: str,
     sections: List[dict],
     *,
-    debug: bool = True,
+    debug: bool = False,
 ) -> Dict[str, List[Tuple[int, int]]]:
     """
     Scan the entire body for TRUE section headers (start-of-line only), restricted
@@ -69,6 +67,7 @@ def build_windows_for_sections(
     wanted_keys = {k for k in wanted_keys if k in BODY_SECTIONS}
 
     # Strict, start-of-line header hits (already de-duped)
+    # NOTE: find_header_hits_strict must yield [(start_char, sec_key)]
     hits = find_header_hits_strict(nlp, body_text, wanted_keys)  # [(start_char, sec_key)]
     hits.sort(key=lambda t: t[0])
 
@@ -117,12 +116,6 @@ def pick_first_window_for_key(
     wins = windows_by_key.get(section_key) or []
     return wins[0] if wins else None
 
-
-from typing import Iterable, List, Tuple, Dict
-# make sure these two are present in the file:
-# from .matchers import header_matcher_for
-# from .sections import index_global_headers_strict  # if defined below, no need to import
-
 def build_section_windows_strict(
     nlp,
     body_text: str,
@@ -138,17 +131,17 @@ def build_section_windows_strict(
       { section_key: [(start, end), ...], ... }
     """
     # 1) Find every header occurrence with strict "line start" rule
-    headers: List[Tuple[str, int]] = index_global_headers_strict(nlp, body_text, section_keys)
+    headers: List[Tuple[int, str]] = index_global_headers_strict(nlp, body_text, section_keys)
 
-    # 2) Sort by absolute start
-    headers.sort(key=lambda kv: kv[1])
+    # 2) Already sorted by index_global_headers_strict; sort again defensively
+    headers.sort(key=lambda kv: kv[0])
 
     # 3) Produce windows
     windows_by_key: Dict[str, List[Tuple[int, int]]] = {}
     text_len = len(body_text)
 
-    for i, (key, start_pos) in enumerate(headers):
-        end_pos = headers[i + 1][1] if i + 1 < len(headers) else text_len
+    for i, (start_pos, key) in enumerate(headers):
+        end_pos = headers[i + 1][0] if i + 1 < len(headers) else text_len
         # guard against inversions
         start_pos = max(0, min(start_pos, text_len))
         end_pos = max(start_pos, min(end_pos, text_len))

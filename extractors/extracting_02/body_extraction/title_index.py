@@ -1,35 +1,38 @@
-from typing import List, Optional, Dict, Any
+# body_extraction/title_index.py
+from __future__ import annotations
+
+from typing import List, Optional, Dict
 from spacy.matcher import Matcher, PhraseMatcher
 from spacy.tokens import Doc
+
 from .body_taxonomy import BODY_SECTIONS
+from .text_norm import normalize_for_search  # <-- unified normalization
 
 import re
-from typing import List, Dict
 
 def section_title_prefixes_from_items(items: List[Dict], tokens: int = 6) -> List[str]:
     """
     From Sumário items (each with "text"), build short normalized prefixes
     like "Aviso de Projeto de Portaria de" or "Contrato Coletivo entre a".
     These are used for fast line-start matching inside the section window.
+    Normalization matches body scanning rules (diacritics, wrapped hyphens, NBSP).
     """
     prefixes: List[str] = []
 
-    def normalize(s: str) -> str:
-        s = re.sub(r"\s+", " ", (s or "").strip())
-        # keep punctuation that often appears in headings (dash/colon/paren)
-        return s
-
     for it in items or []:
-        txt = normalize(it.get("text", ""))
-        if not txt:
+        raw = (it.get("text") or "").strip()
+        if not raw:
             continue
-        # take first N whitespace-delimited tokens
-        parts = txt.split(" ")
+        # normalize consistently, then take the first N whitespace-delimited tokens
+        norm = normalize_for_search(raw)
+        if not norm:
+            continue
+        parts = norm.split(" ")
         head = " ".join(parts[:tokens]).strip()
         if head:
             prefixes.append(head)
 
-    # dedup while preserving order
+    # dedup while preserving order (case-insensitive keying over normalized form)
     seen = set()
     uniq: List[str] = []
     for p in prefixes:
@@ -38,7 +41,6 @@ def section_title_prefixes_from_items(items: List[Dict], tokens: int = 6) -> Lis
             seen.add(key)
             uniq.append(p)
     return uniq
-
 
 def _build_title_matcher(nlp, section_key: str) -> Optional[Matcher]:
     sec = BODY_SECTIONS.get(section_key)
@@ -49,7 +51,6 @@ def _build_title_matcher(nlp, section_key: str) -> Optional[Matcher]:
         if pat:
             m.add(f"TIT_{section_key}_{i}", [pat])
     return m
-
 
 def _build_signature_phrasematcher(nlp, section_key: str) -> Optional[PhraseMatcher]:
     sec = BODY_SECTIONS.get(section_key)
@@ -62,10 +63,9 @@ def _build_signature_phrasematcher(nlp, section_key: str) -> Optional[PhraseMatc
             pm.add(f"ANC_{section_key}_{i}", [nlp.make_doc(p)])
     return pm
 
-
 def index_block_titles(nlp, window_text: str, section_key: str) -> List[int]:
     """
-    Return sorted, de-duplicated relative positions (to window_text)
+    Return sorted, de-duplicated RELATIVE positions (to window_text)
     where a section item title likely starts, using taxonomy:
       - spaCy Matcher over item_title_patterns
       - plus PhraseMatcher over item_anchor_phrases
@@ -97,7 +97,7 @@ def index_block_titles(nlp, window_text: str, section_key: str) -> List[int]:
     if not starts:
         return []
 
-    # sort + dedup by line
+    # sort + dedup by physical line
     starts.sort()
     dedup: List[int] = []
     last_line_start = None
