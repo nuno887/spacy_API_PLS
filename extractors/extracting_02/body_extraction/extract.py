@@ -16,10 +16,10 @@ from .debug_tools import (
 
 from .title_index import index_block_titles, section_title_prefixes_from_items
 from .body_taxonomy import BODY_SECTIONS
-from .text_norm import normalize_for_search
+from .text_norm import normalize_for_search, collapse_for_header_raw
 
 # =========================
-# Small utils
+# Small utils start
 # =========================
 
 FIRST_LINE_MAX_TOKENS = 12
@@ -50,16 +50,22 @@ def _iter_lines_with_offsets(text: str, start: int, end: int):
 
 def _build_firstline_pattern(nlp, item_text: str) -> Optional[List[Dict[str, Any]]]:
     """
-    Build a Matcher pattern from the item's first nonblank line, capped to FIRST_LINE_MAX_TOKENS.
-    Used ONLY for comparison, never to extract offsets directly.
+    Build a Matcher pattern from the item's logical header line (first meaningful tokens),
+    capped to FIRST_LINE_MAX_TOKENS. This collapses '\n' and hyphen-wrapped breaks so
+    multi-line item titles match single-line body titles.
     """
-    first = _first_nonblank_line(item_text)
-    if not first:
+    # Collapse physical breaks into one logical line (preserve accents/case)
+    logical = collapse_for_header_raw(item_text or "")
+    if not logical:
         return None
-    doc = nlp.make_doc(first)
+
+    doc = nlp.make_doc(logical)
+
+    # Pick informative tokens; tolerate titles that start with short function words
     toks = [t for t in doc if (t.is_alpha or t.is_digit or (t.text.isupper() and len(t.text) >= 2))]
     if not toks:
         toks = [t for t in doc if not t.is_space]
+
     toks = toks[:FIRST_LINE_MAX_TOKENS]
     if not toks:
         return None
@@ -67,8 +73,9 @@ def _build_firstline_pattern(nlp, item_text: str) -> Optional[List[Dict[str, Any
     pat: List[Dict[str, Any]] = []
     for i, t in enumerate(toks):
         if i > 0:
-            # allow punctuation between tokens
+            # allow arbitrary punctuation between required tokens
             pat.append({"IS_PUNCT": True, "OP": "*"})
+        # match case-insensitively on the token text
         pat.append({"LOWER": t.text.lower()})
     return pat
 
@@ -108,6 +115,131 @@ def _anchored_firstline_match(nlp, window_text: str, item_text: str, win_abs_sta
         return win_abs_start + line_abs_start
 
     return None
+
+# _item_token_sets produces token sets from each item’s logical header (so item \n won’t hurt)
+def _item_token_sets(nlp, items: List[Dict[str, Any]]) -> List[set]:
+    sets: List[set] = []
+    for it in items or []:
+        logical = collapse_for_header_raw(it.get("text", "") or "")
+        if not logical:
+            sets.append(set())
+            continue
+        doc = nlp.make_doc(logical)
+        toks = [t.text.lower() for t in doc if (t.is_alpha or t.is_digit)]
+        # cap to a reasonable window; we only need the "header-ish" part
+        sets.append(set(toks[:12]))
+    return sets
+
+# _jaccard is a dead-simple overlap score to check “does this line look like one of our items?”
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 0.0
+    u = a | b
+    if not u:
+        return 0.0
+    return len(a & b) / len(u)
+
+# _line_token_set gives us a comparable token set for a candidate body line.
+def _line_token_set(nlp, raw_line: str) -> set:
+    # normalize newlines/spaces & strip diacritics for comparison
+    comp = normalize_for_search(raw_line or "")
+    if not comp:
+        return set()
+    return set(w for w in comp.split() if w)
+
+def _verify_and_prune_candidates(
+    nlp,
+    body_text: str,
+    win_start: int,
+    win_end: int,
+    items: List[Dict[str, Any]],
+    merged_map: Dict[int, Set[str]],  # line_start -> {"spacy","prefix","firstline"}
+) -> Tuple[List[int], List[Dict[str, Any]]]:
+    """
+    Confirm that candidate header lines belong to this section's items,
+    then prune to at most len(items) while preserving document order.
+
+    Returns:
+        ordered_starts: List[int]  -> final accepted line starts (abs indexes)
+        accepted_rows : List[dict] -> per-line diagnostics (optional use)
+    """
+    # Build once: item token sets & normalized item prefixes
+    item_sets = _item_token_sets(nlp, items)
+    prefixes = section_title_prefixes_from_items(items, tokens=6)  # already newline/diacritics robust
+
+    # Score each candidate
+    candidate_rows = []
+    for ls, sources in merged_map.items():
+        # extract raw line text within the window
+        ln_end = body_text.find("\n", ls, win_end)
+        if ln_end == -1:
+            ln_end = win_end
+        raw_line = body_text[ls:ln_end]
+
+        comp_line = normalize_for_search(raw_line.strip())
+        line_tokens = set(comp_line.split()) if comp_line else set()
+
+        first_char = raw_line.lstrip()[:1]
+        starts_with_punct = first_char in {"(", "•", "–", "-"}
+
+        ok_prefix = any(comp_line.startswith(p) for p in prefixes) if comp_line else False
+        max_overlap = max((_jaccard(line_tokens, s) for s in item_sets), default=0.0)
+
+        score = 0
+        if "spacy" in sources:
+            score += 2
+        if ok_prefix:
+            score += 1
+        if max_overlap >= 0.30:
+            score += 1
+        if starts_with_punct:
+            score -= 1
+
+        candidate_rows.append({
+            "line_start": ls,
+            "sources": sorted(sources),
+            "ok_prefix": ok_prefix,
+            "max_overlap": round(max_overlap, 3),
+            "starts_with_punct": starts_with_punct,
+            "score": score,
+        })
+
+    # Primary acceptance: prefix OR sufficient overlap
+    accepted = [r for r in candidate_rows if (r["ok_prefix"] or r["max_overlap"] >= 0.30)]
+
+    # Backfill if under-matching: strong spacy-only lines
+    need = len(items) - len(accepted)
+    if need > 0:
+        backfill = [
+            r for r in candidate_rows
+            if r not in accepted and ("spacy" in r["sources"]) and r["score"] >= 2
+        ]
+        backfill.sort(key=lambda r: r["line_start"])  # keep doc order
+        accepted.extend(backfill[:need])
+
+    # Prune if over-matching: keep best len(items) by score, preserving order
+    if len(accepted) > len(items):
+        # stable, simple tiered pruning
+        in_order = sorted(accepted, key=lambda r: r["line_start"])
+        tier2 = [r for r in in_order if r["score"] >= 2]
+        if len(tier2) >= len(items):
+            accepted = tier2[:len(items)]
+        else:
+            tier1 = tier2 + [r for r in in_order if r["score"] == 1 and r not in tier2]
+            if len(tier1) >= len(items):
+                accepted = tier1[:len(items)]
+            else:
+                accepted = tier1 + [r for r in in_order if r not in tier1]
+                accepted = accepted[:len(items)]
+
+    ordered_starts = sorted(r["line_start"] for r in accepted)
+    return ordered_starts, accepted
+
+
+
+# =========================
+# Small utils end
+# =========================
 
 # =========================
 # MAIN
@@ -195,8 +327,15 @@ def run_extraction(
                     if len(used_lines) >= len(items):
                         break
 
-        # Final ordered starts (one per physical line)
-        ordered_starts = sorted(merged_map.keys())
+        
+        ordered_starts, _accepted_rows = _verify_and_prune_candidates(
+            nlp=nlp,
+            body_text=body_text,
+            win_start=win_start,
+            win_end=win_end,
+            items=items,
+            merged_map=merged_map,
+        )
         extra_starts = max(0, len(ordered_starts) - len(items))
 
         dbg_spacy_title_hits(sec_key, ordered_starts, body_text)
@@ -234,6 +373,7 @@ def run_extraction(
                     "diagnostics": {
                         "titles_indexed": len(ordered_starts),
                         "method_sources": sources,  # provenance on this line
+                        "accepted_rows": _accepted_rows,
                         "sources": {
                             "spacy": sum(1 for v in merged_map.values() if "spacy" in v),
                             "prefix": sum(1 for v in merged_map.values() if "prefix" in v),

@@ -17,6 +17,10 @@ def section_title_prefixes_from_items(items: List[Dict], tokens: int = 6) -> Lis
     These are used for fast line-start matching inside the section window.
     Normalization matches body scanning rules (diacritics, wrapped hyphens, NBSP).
     """
+    # Normalization collapses newlines & hyphen wraps, so multi-line item titles
+    # produce single-line prefixes that match body titles.
+
+
     prefixes: List[str] = []
 
     for it in items or []:

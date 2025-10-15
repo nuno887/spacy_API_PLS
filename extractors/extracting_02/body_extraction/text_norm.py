@@ -30,3 +30,25 @@ def normalize_for_search(s: str) -> str:
     s = strip_diacritics(s)
     s = re.sub(r"\s+", " ", s).strip().lower()
     return s
+
+
+def collapse_for_header_raw(s: str) -> str:
+    """
+    Collapse an item's physical line breaks into a single logical header line,
+    while preserving accents/case for spaCy tokenization.
+
+    - remove soft hyphens
+    - unwrap hyphen+newline       (e.g. 'con-\ntrato' -> 'contrato')
+    - convert NBSP to space
+    - convert all newlines to space
+    - collapse repeated whitespace
+    """
+    if not s:
+        return ""
+    s = s.replace(_SOFT_HYPHEN, "")
+    s = re.sub(r"-\r?\n", "", s)
+    s = s.replace(_NBSP, " ")
+    s = s.replace("\r", "")
+    s = s.replace("\n", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
