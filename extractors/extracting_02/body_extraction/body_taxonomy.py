@@ -268,4 +268,25 @@ BODY_SECTIONS: Dict[str, BodySection] = {
         ],
         item_anchor_phrases=["Estatutos", "Alteração", "Alterações", "Alteracoes"],
     ),
+    "CorposGerentes/Alteracoes": BodySection(
+        canonical="CorposGerentes/Alteracoes",
+        header_aliases=[
+            "Corpos Gerentes/Alterações", "Corpos Gerentes/Alteracoes",
+            "Corpos Gerentes / Alterações", "Corpos Gerentes / Alteracoes",
+            "Corpos Gerentes/Alterações:", "Corpos Gerentes/Alteracoes:",
+            "Corpos Gerentes / Alterações:", "Corpos Gerentes / Alteracoes:",
+        ],
+        item_title_patterns=[
+            # "Corpos Gerentes"
+            [{"LOWER": "corpos"}, {"LOWER": "gerentes"}],
+            # "Membros da Direção/Direcao"
+            [{"LOWER": "membros"}, {"LOWER": "da"}, {"LOWER": {"IN": ["direção", "direcao"]}}],
+            # "Alteração/Alterações"
+            [{"LOWER": {"IN": ["alteração", "alteracao", "alterações", "alteracoes"]}}],
+        ],
+        item_anchor_phrases=[
+            "Corpos Gerentes", 
+             "Alterações", "Alteracoes",],
+),
+
 }
